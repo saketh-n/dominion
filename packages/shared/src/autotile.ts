@@ -24,6 +24,22 @@ export const BLOB_NW = 128;
 /** Tiles per terrain-pair blob set (47 shapes + 1 solid variant). */
 export const BLOB_TILE_COUNT = 48;
 
+/**
+ * Weighted floor variant: ~85% base / 10% A / 5% B (and thin tail for n>3).
+ * unit in [0,1). Exported for map tests.
+ */
+export function weightedVariantFromUnit(unit: number, variantCount: number): number {
+  const n = Math.max(1, variantCount | 0);
+  if (n === 1) return 0;
+  const u = ((unit % 1) + 1) % 1;
+  if (n === 2) return u < 0.85 ? 0 : 1;
+  if (u < 0.85) return 0;
+  if (u < 0.95) return 1;
+  if (n === 3) return 2;
+  const t = (u - 0.95) / 0.05;
+  return 2 + Math.min(n - 3, Math.floor(t * (n - 2)));
+}
+
 /** Solid interior mask (all 8 neighbors match). */
 export const BLOB_MASK_ALL = 255;
 
@@ -260,7 +276,8 @@ export function selectAutotileIndex(
   const same = neighbors.map((k) => k === self);
   const allSame = same.every(Boolean);
   const variantN = Math.max(1, opts.variantCount(self));
-  const variant = Math.min(variantN - 1, Math.floor(opts.variantUnit * variantN));
+  // Weighted ~85% base / 10% A / 5% B (not uniform — kills checkerboard)
+  const variant = weightedVariantFromUnit(opts.variantUnit, variantN);
 
   if (allSame) {
     return opts.baseTile(self, variant);

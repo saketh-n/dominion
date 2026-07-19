@@ -5,7 +5,7 @@ export const CHAR_W = 16;
 export const CHAR_H = 24;
 
 /** Bump when shipping new art so browsers/Phaser never reuse stale asset blobs. */
-export const ASSET_REV = "grc-dp-v6-seams-marble";
+export const ASSET_REV = "grc-dp-v7-zoom3-palette48";
 
 export class PreloadScene extends Phaser.Scene {
   constructor() {

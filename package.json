@@ -20,7 +20,16 @@
     "test:marble": "node tools/marble-grid-check.mjs",
     "test:scroll": "tsx apps/client/src/world/tileStream.test.ts",
     "preview:map": "tsx tools/preview-map.ts",
-    "preview:scene": "tsx tools/preview-scene.ts"
+    "preview:scene": "tsx tools/preview-scene.ts",
+    "test:resolution": "tsx packages/shared/src/resolution.test.ts",
+    "test:palette": "tsx packages/shared/src/palette.test.ts",
+    "test:stamps": "tsx packages/shared/src/stamps.test.ts",
+    "test:value": "tsx packages/shared/src/value-hierarchy.test.ts",
+    "test:props": "tsx packages/shared/src/props-shading.test.ts",
+    "test:ysort": "tsx packages/shared/src/ysort.test.ts",
+    "test:mapcomp": "tsx packages/shared/src/map-composition.test.ts",
+    "test:graphics": "pnpm test:resolution && pnpm test:palette && pnpm test:stamps && pnpm test:value && pnpm test:props && pnpm test:ysort && pnpm test:mapcomp",
+    "test:center": "tsx packages/shared/src/center-layout.test.ts"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^1.0.2",

@@ -16,6 +16,8 @@ import {
   WorldState,
   resolveEnterTarget,
   enterPrompt,
+  OVERWORLD_ZOOM,
+  INTERIOR_ZOOM,
   type ClientSettings,
 } from "@game/shared";
 import { WorldModel } from "../world/WorldModel";
@@ -37,6 +39,7 @@ import { reconcileWorldPosition } from "../net/reconcile";
 import { ChatUI } from "../ui/ChatUI";
 import { PartyHUD } from "../ui/PartyHUD";
 import { GameMenus, loadSettings } from "../ui/GameMenus";
+import { refitDisplay } from "../displayScale";
 
 const STEP_MS = 1000 / WALK_SPEED;
 
@@ -95,8 +98,8 @@ export class WorldScene extends Phaser.Scene {
   private interiorKind: "house" | "temple" | "shrine" = "house";
   private interiorName = "Interior";
   private settings: ClientSettings = loadSettings();
-  /** Overworld zoom restored when leaving an interior. */
-  private overworldZoom = 2.0;
+  /** Overworld zoom restored when leaving an interior (always integer). */
+  private overworldZoom = OVERWORLD_ZOOM;
   /**
    * Fixed world origin for interior rooms (far from the 1024 map so leftover
    * tiles never appear). Camera centers here with zoom 1 while inside.
@@ -143,9 +146,9 @@ export class WorldScene extends Phaser.Scene {
     this.syncNameTag();
 
     const cam = this.cameras.main;
-    // DP-like overworld zoom: player stays centered; world scrolls underfoot.
-    // ~2.0 ≈ 30×20 tiles at 960×640 — capital plaza props readable in-frame.
-    cam.setZoom(2.0);
+    // DP-like overworld zoom: integer 3 → ~20×14 tiles at 960×640 (DS is 16×12).
+    cam.setZoom(OVERWORLD_ZOOM);
+    refitDisplay(OVERWORLD_ZOOM);
     cam.startFollow(this.player, true, 1, 1); // hard lock — no laggy edge feel
     cam.setRoundPixels(true);
     cam.setDeadzone(0, 0);
@@ -410,7 +413,9 @@ export class WorldScene extends Phaser.Scene {
   private syncPlayerPixel() {
     this.player.x = this.tileX * TILE_SIZE + TILE_SIZE / 2;
     this.player.y = this.tileY * TILE_SIZE + TILE_SIZE;
+    // Same depth space as tall props (base Y) — walking behind a column occludes lower half
     this.player.setDepth(10 + this.tileY * 0.001);
+    this.tilemap?.refreshTallPropDepths();
     this.syncNameTag();
   }
 
@@ -541,9 +546,10 @@ export class WorldScene extends Phaser.Scene {
     this.tilemap.setVisible(false);
 
     const cam = this.cameras.main;
-    this.overworldZoom = cam.zoom || 2.0;
+    this.overworldZoom = OVERWORLD_ZOOM;
     cam.stopFollow();
-    cam.setZoom(1);
+    cam.setZoom(INTERIOR_ZOOM);
+    refitDisplay(INTERIOR_ZOOM);
 
     const ox = WorldScene.INTERIOR_ORIGIN_X;
     const oy = WorldScene.INTERIOR_ORIGIN_Y;
@@ -623,7 +629,9 @@ export class WorldScene extends Phaser.Scene {
   private resumeOverworldCamera() {
     if (!this.player) return;
     const cam = this.cameras.main;
-    cam.setZoom(this.overworldZoom || 2.0);
+    const z = this.overworldZoom || OVERWORLD_ZOOM;
+    cam.setZoom(z);
+    refitDisplay(z);
     cam.startFollow(this.player, true, 1, 1);
     cam.setDeadzone(0, 0);
     cam.centerOn(this.player.x, this.player.y);

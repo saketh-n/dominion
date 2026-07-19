@@ -1,4 +1,7 @@
 export * from "./constants.js";
+export * from "./resolution.js";
+export * from "./graphics-analysis.js";
+export * from "./tall-props.js";
 export * from "./autotile.js";
 export * from "./tiles.js";
 export * from "./world.js";

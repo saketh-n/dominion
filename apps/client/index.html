@@ -20,9 +20,16 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        /* Flex host is the single centering mechanism (not Phaser absolute offsets). */
       }
-      canvas {
+      #game canvas {
         image-rendering: pixelated;
+        /* Default before JS fit; keep as flex item, never absolute. */
+        position: relative;
+        left: auto;
+        top: auto;
+        margin: 0;
+        display: block;
       }
     </style>
   </head>

@@ -681,7 +681,7 @@ const tests = [
     );
     // Dedicated off-map interior origin + zoom 1 room (fills canvas, distinct palette)
     assert.match(showBody, /INTERIOR_ORIGIN/);
-    assert.match(showBody, /setZoom\s*\(\s*1\s*\)/);
+    assert.match(showBody, /setZoom\s*\(\s*(?:1|INTERIOR_ZOOM)\s*\)/);
     assert.match(showBody, /tilemap\.setVisible\(false\)/);
     assert.match(showBody, /0xd8d0bc|floorColor/, "temple floor palette present");
     assert.match(showBody, /0x3a2e22/, "house floor palette present");

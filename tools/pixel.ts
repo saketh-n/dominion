@@ -98,17 +98,18 @@ export function groupValue(color: string, steps = 6): string {
 }
 
 /**
- * Unified style palette — muted, desaturated DP-bar values.
+ * Unified style tokens — must stay inside the global ≤48 palette (tools/palette.ts).
+ * No runtime mix/shade: shadows/outlines are fixed opaque palette entries.
  * Light source: top-left (−1, −1) → highlights NW, shadows SE.
  */
 export const STYLE = {
-  /** Outline color — selective dark rim, never pure black. */
-  outline: "#2c2824",
-  outlineSoft: "#3a342c",
-  /** Drop shadow (cast) and contact AO. */
-  shadow: "rgba(28, 24, 20, 0.38)",
-  shadowSoft: "rgba(28, 24, 20, 0.22)",
-  contactAO: "rgba(22, 18, 14, 0.48)",
+  /** Outline color — selective dark rim, never pure black (palette ink). */
+  outline: "#2a2438",
+  outlineSoft: "#3a4050",
+  /** Drop / contact shadows — opaque palette darks (no RGBA alpha variants). */
+  shadow: "#2a2438",
+  shadowSoft: "#3a4050",
+  contactAO: "#2a2438",
   /** Directional light unit vector (from NW). */
   lightDX: -0.55,
   lightDY: -0.55,
@@ -165,8 +166,8 @@ export function ditherVGradient(
 }
 
 /**
- * Soft circular drop shadow under an object footprint.
- * Draws translucent ellipse near bottom of tile before the object body.
+ * Elliptical contact / cast shadow under an object footprint.
+ * Uses only opaque palette colors (no new alpha variants).
  */
 export function dropShadow(
   ctx: Ctx,
@@ -182,20 +183,20 @@ export function dropShadow(
       const dy = (y + 0.5 - cy) / Math.max(0.5, ry);
       const d2 = dx * dx + dy * dy;
       if (d2 > 1) continue;
-      // Soft falloff + checker dither for gradient
       const cover = (1 - d2) * (1 - d2);
-      if (cover < ditherThreshold(x, y) * 0.85 && cover < 0.55) continue;
-      // Composite darken: read-ish via overdraw with alpha hex
-      const [sr, sg, sb] = hex(color);
-      const a = hex(color)[3] / 255;
-      const alpha = Math.min(1, a * (0.35 + cover * 0.85));
-      px(ctx, x, y, toHex(sr, sg, sb, Math.round(alpha * 255)));
+      // Dither density for soft edge — still only palette ink / soft
+      if (cover < 0.35) {
+        if (ditherThreshold(x, y) > cover * 1.2) continue;
+        px(ctx, x, y, STYLE.shadowSoft);
+      } else {
+        px(ctx, x, y, color);
+      }
     }
   }
 }
 
 /**
- * Dark contact AO line / oval where object meets ground (tighter than drop shadow).
+ * Dark contact AO oval / line where object meets ground (tighter than drop shadow).
  */
 export function contactShadow(
   ctx: Ctx,
@@ -204,7 +205,6 @@ export function contactShadow(
   w: number,
   color: string = STYLE.contactAO
 ): void {
-  // Center denser, edges dithered
   for (let x = x0; x < x0 + w; x++) {
     const edge = Math.min(x - x0, x0 + w - 1 - x);
     const t = edge / Math.max(1, w / 2);
@@ -212,6 +212,19 @@ export function contactShadow(
     px(ctx, x, y, color);
     if (t > 0.4 && y > 0) px(ctx, x, y - 1, STYLE.shadowSoft);
   }
+}
+
+/**
+ * Elliptical contact shadow (preferred for props) — opaque palette only.
+ */
+export function ellipseContactShadow(
+  ctx: Ctx,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number
+): void {
+  dropShadow(ctx, cx, cy, rx, ry, STYLE.contactAO);
 }
 
 /**
@@ -397,19 +410,11 @@ export function paintBlobTransition(
         pickFg = t > ditherThreshold(x, y);
       }
       const src = pickFg ? fgData : bgData;
+      // Pick existing palette pixels only — never synthesize new RGB.
       d[i] = src[i];
       d[i + 1] = src[i + 1];
       d[i + 2] = src[i + 2];
       d[i + 3] = src[i + 3];
-      // Micro edge darken for readable blend seam (dithered AO along boundary)
-      if (cover > lo && cover < hi) {
-        const thr = ditherThreshold(x + 1, y + 1);
-        if (thr < 0.4) {
-          d[i] = Math.round(d[i] * 0.9);
-          d[i + 1] = Math.round(d[i + 1] * 0.9);
-          d[i + 2] = Math.round(d[i + 2] * 0.92);
-        }
-      }
     }
   }
   ctx.putImageData(out, 0, 0);

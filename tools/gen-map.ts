@@ -32,6 +32,8 @@ import {
   transitionTileIndex,
   SCATTER_DECALS,
   isWaterTile,
+  tileToTerrainKind,
+  TERRAIN_BASE_VARIANTS,
 } from "../packages/shared/src/index.js";
 import { rng } from "./pixel.js";
 
@@ -155,6 +157,17 @@ function hash01(x: number, y: number, salt = 0): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+/** True if ground tile is a non-base (variant A/B/…) fill for its terrain. */
+function isNonBaseVariantTile(t: number): boolean {
+  const k = tileToTerrainKind(t);
+  if (k === null) return false;
+  const list = TERRAIN_BASE_VARIANTS[k];
+  if (!list || list.length < 2) return false;
+  // base is list[0]; transitions are not "variants" for adjacency
+  if (t >= Tile.TRANSITION_BASE) return false;
+  return list.includes(t) && t !== list[0];
+}
+
 /** Bake terrain-kind grid → ground tile indices via 48-blob autotile. */
 function bakeAutotileGround(x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1) {
   for (let y = y0; y <= y1; y++) {
@@ -173,10 +186,17 @@ function bakeAutotileGround(x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1) {
       ) {
         continue;
       }
+      let unit = hash01(x, y, 17);
+      // No two non-base variants 4-adjacent: if left/up is non-base, force base (unit→0)
+      const left = x > x0 ? ground[idx(x - 1, y, W)] : 0;
+      const up = y > y0 ? ground[idx(x, y - 1, W)] : 0;
+      if (isNonBaseVariantTile(left) || isNonBaseVariantTile(up)) {
+        unit = 0; // always base
+      }
       ground[i] = selectAutotileIndex(self, neighborKinds(x, y), {
         baseTile: baseTileForTerrain,
         transitionTile: transitionTileIndex,
-        variantUnit: hash01(x, y, 17),
+        variantUnit: unit,
         variantCount: variantCountForTerrain,
       });
     }
@@ -274,10 +294,12 @@ for (let y = 2; y < H - 2; y++) {
       continue;
     }
 
-    // scattered props
-    if (d < 0.015) deco[i] = Tile.BUSH;
-    else if (d > 0.985) deco[i] = Tile.BOULDER;
-    else if (d > 0.975 && d <= 0.985) deco[i] = m > 0.5 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
+    // scattered props — sparse (~1 per 20 open tiles) in small clusters
+    // d thresholds tightened vs old 0.015/0.985 scatter
+    if (d < 0.006 && (x + y) % 5 === 0) deco[i] = Tile.BUSH;
+    else if (d > 0.992 && x % 4 === 0) deco[i] = Tile.BOULDER;
+    else if (d > 0.988 && d <= 0.992 && (x % 3 === 0))
+      deco[i] = m > 0.5 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
   }
 }
 
@@ -700,7 +722,7 @@ for (let y = PY0 + 10; y <= PY1 - 10; y += 2) {
     deco[idx(px, y, W)] = Tile.PILLAR;
   }
 }
-// Dense garden props on grass courts (trees, bushes, flowers, amphorae)
+// Garden props on grass courts — purposeful clusters, open rest between (~1/20)
 for (let y = PY0 + 6; y <= PY1 - 6; y++) {
   for (let x = PX0 + 6; x <= PX1 - 6; x++) {
     const i = idx(x, y, W);
@@ -710,22 +732,23 @@ for (let y = PY0 + 6; y <= PY1 - 6; y++) {
     if (x >= 508 && x <= 515) continue;
     if (y >= 515 && y <= 522 && x >= 500 && x <= 523) continue;
     if (Math.abs(x - FCX) < 10 && Math.abs(y - FCY) < 10) continue;
+    // cluster grid: only plant on 4×4 lattice seeds + rare fill
+    const cluster = x % 4 === 0 && y % 4 === 0;
     const h = detailNoise(x * 11 + 3, y * 13 + 7);
-    if (h < 0.18) {
+    if (!cluster && h > 0.08) continue;
+    if (h < 0.04) {
       if (deco[i - W] === 0 && overhead[i - W] === 0) {
         deco[i] = Tile.TREE_TRUNK;
         overhead[i - W] = Tile.TREE_CANOPY;
       }
-    } else if (h < 0.34) {
+    } else if (h < 0.07 && cluster) {
       deco[i] = Tile.BUSH;
-    } else if (h < 0.48) {
-      deco[i] = h < 0.41 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
-    } else if (h < 0.56) {
+    } else if (h < 0.1 && cluster) {
+      deco[i] = h < 0.085 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
+    } else if (h < 0.12 && cluster && (x + y) % 8 === 0) {
       deco[i] = Tile.AMPHORA;
-    } else if (h < 0.6 && (x + y) % 5 === 0) {
+    } else if (h < 0.14 && cluster && (x + y) % 10 === 0) {
       deco[i] = Tile.PILLAR;
-    } else if (h < 0.63 && (x + y) % 7 === 0) {
-      deco[i] = Tile.BOULDER;
     }
   }
 }
@@ -887,9 +910,7 @@ for (const [qx, qy] of quadrants) {
   }
 }
 
-// city lawn planting: denser DP-style gardens (trees, flowers, bushes, pillars)
-// Residential first-look used to be empty green lawns — pack props hard so even
-// house districts read as Greco-Roman capital, not sparse field.
+// city lawn planting: sparse clusters with open rest (~1 prop per 20 open tiles).
 // Never stamp solid deco on house door/spawn tiles or the 3-tile door path.
 const houseClear = new Set<number>();
 for (const h of houses) {
@@ -908,9 +929,10 @@ for (let y = CITY_Y0 + 4; y <= CITY_Y1 - 4; y++) {
     const i = idx(x, y, W);
     if (houseClear.has(i)) continue;
     if (deco[i] !== 0 || terrain[i] !== TerrainKind.GRASS) continue;
+    // 5×5 lattice clusters only — open lawn between
+    if (x % 5 !== 0 || y % 5 !== 0) continue;
     const d = detailNoise(x * 7 + 555, y * 7 + 555);
-    if (d < 0.09) {
-      // tree — needs a free tile above for the canopy
+    if (d < 0.12) {
       if (
         deco[i - W] === 0 &&
         overhead[i - W] === 0 &&
@@ -921,18 +943,16 @@ for (let y = CITY_Y0 + 4; y <= CITY_Y1 - 4; y++) {
         overhead[i - W] = Tile.TREE_CANOPY;
       }
     } else if (d < 0.22) {
-      deco[i] = d < 0.15 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
+      deco[i] = d < 0.17 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
     } else if (d < 0.32) {
       deco[i] = Tile.BUSH;
-    } else if (d < 0.38 && (x + y) % 5 === 0) {
+    } else if (d < 0.4 && (x + y) % 10 === 0) {
       deco[i] = Tile.AMPHORA;
-    } else if (d < 0.42 && (x + y) % 7 === 0) {
+    } else if (d < 0.48 && (x + y) % 15 === 0) {
       deco[i] = Tile.PILLAR;
-    } else if (d < 0.45 && (x % 9 === 0) && (y % 6 === 0)) {
+    } else if (d < 0.55 && x % 15 === 0 && y % 10 === 0) {
       deco[i] = Tile.STATUE_BASE;
       if (overhead[i - W] === 0 && !houseClear.has(i - W)) overhead[i - W] = Tile.STATUE_TOP;
-    } else if (d < 0.48 && (x + y) % 11 === 0) {
-      deco[i] = Tile.BOULDER;
     }
   }
 }
@@ -956,13 +976,14 @@ for (const [qx, qy] of quadrants) {
       if (!houseClear.has(ri) && deco[ri] === 0 && terrain[ri] !== TerrainKind.WATER) {
         rugCells.push(ri);
       }
-      // amphora pair flanking door (not on path)
-      for (const ox of [-2, 2]) {
-        const ax = hx + 2 + ox;
+      // single amphora accent at door (not a pair — keeps density down)
+      if ((hx + hy) % 3 === 0) {
+        const ax = hx + 4;
         const ay = hy + 3;
         const ai = idx(ax, ay, W);
-        if (houseClear.has(ai)) continue;
-        if (deco[ai] === 0 && terrain[ai] === TerrainKind.GRASS) deco[ai] = Tile.AMPHORA;
+        if (!houseClear.has(ai) && deco[ai] === 0 && terrain[ai] === TerrainKind.GRASS) {
+          deco[ai] = Tile.AMPHORA;
+        }
       }
     }
   }
@@ -1002,7 +1023,7 @@ for (const h of houses) {
   }
 }
 
-// Scatter decals on open floors/paths/grass (break grid repetition)
+// Scatter decals on open floors/paths/grass — low density, clustered rest areas
 console.log("scatter decals...");
 let scatterCount = 0;
 for (let y = 2; y < H - 2; y++) {
@@ -1013,15 +1034,25 @@ for (let y = 2; y < H - 2; y++) {
     if (ground[i] === Tile.RUG || ground[i] === Tile.T_STEPS || ground[i] === Tile.T_FLOOR) continue;
     const k = terrain[i] as TerrainKind;
     const h = hash01(x, y, 99);
-    // density varies by terrain
+    // ~1 prop/decal per 20 open tiles overall; prefer cluster seeds
     let chance = 0;
-    if (k === TerrainKind.GRASS) chance = 0.09;
-    else if (k === TerrainKind.STONE) chance = 0.07;
-    else if (k === TerrainKind.MARBLE) chance = 0.05;
-    else if (k === TerrainKind.DIRT) chance = 0.08;
-    else if (k === TerrainKind.SAND) chance = 0.06;
-    else if (k === TerrainKind.ROCK) chance = 0.05;
+    if (k === TerrainKind.GRASS) chance = 0.035;
+    else if (k === TerrainKind.STONE) chance = 0.03;
+    else if (k === TerrainKind.MARBLE) chance = 0.025;
+    else if (k === TerrainKind.DIRT) chance = 0.03;
+    else if (k === TerrainKind.SAND) chance = 0.025;
+    else if (k === TerrainKind.ROCK) chance = 0.02;
     else continue;
+    // cluster: boost only near existing deco, else rare seed
+    let nearDeco = false;
+    for (let dy = -2; dy <= 2 && !nearDeco; dy++) {
+      for (let dx = -2; dx <= 2 && !nearDeco; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        if (deco[idx(x + dx, y + dy, W)] !== 0) nearDeco = true;
+      }
+    }
+    if (nearDeco) chance *= 1.8;
+    else chance *= 0.55;
     if (h > chance) continue;
     // pick decal suited to terrain
     let pool: number[];
