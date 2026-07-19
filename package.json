@@ -1,0 +1,31 @@
+{
+  "name": "dominion",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node tools/free-dev-ports.mjs",
+    "dev": "pnpm --parallel --filter @game/server --filter @game/client dev",
+    "dev:server": "pnpm --filter @game/server dev",
+    "dev:client": "pnpm --filter @game/client dev",
+    "dev:free": "node tools/free-dev-ports.mjs",
+    "gen": "pnpm gen:tileset && pnpm gen:sprites && pnpm gen:map",
+    "gen:tileset": "tsx tools/gen-tileset.ts",
+    "gen:sprites": "tsx tools/gen-sprites.ts",
+    "gen:map": "tsx tools/gen-map.ts",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @game/server test:all",
+    "test:autotile": "tsx packages/shared/src/autotile.test.ts",
+    "test:seams": "tsx packages/shared/src/seam-check.test.ts",
+    "test:style": "node tools/style-check.mjs",
+    "test:marble": "node tools/marble-grid-check.mjs",
+    "test:scroll": "tsx apps/client/src/world/tileStream.test.ts",
+    "preview:map": "tsx tools/preview-map.ts",
+    "preview:scene": "tsx tools/preview-scene.ts"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.2",
+    "playwright": "^1.61.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.0"
+  }
+}
