@@ -48,7 +48,8 @@ fillKind(23, 0, 27, 2, TerrainKind.WATER);
 fillKind(12, 0, 13, 8, TerrainKind.DIRT);
 for (let y = 9; y <= 10; y++) for (let x = 0; x < W; x++) kinds[y][x] = TerrainKind.STONE;
 
-// --- marble plaza ---
+// --- marble plaza (larger continuous field for slab-seam / banding checks) ---
+fillKind(12, 10, 27, 14, TerrainKind.MARBLE);
 fillKind(14, 11, 27, 14, TerrainKind.MARBLE);
 
 // bake autotile
@@ -123,9 +124,9 @@ for (let i = 0; i < 5; i++) {
   deco[hy + 3][hx + i] = doorRow[i];
 }
 
-// --- temple (7 wide), left ---
+// --- temple (7 wide), left — multi-tile facade with door + 3-tall columns ---
 const tx = 2;
-const ty = 1;
+const ty = 0;
 for (let i = 0; i < 7; i++) deco[ty + 1][tx + i] = Tile.T_FRIEZE;
 deco[ty][tx + 2] = Tile.T_PED_W;
 deco[ty][tx + 3] = Tile.T_PED_M;
@@ -134,12 +135,19 @@ for (let i = 0; i < 7; i++) {
   const col = i % 2 === 0;
   deco[ty + 2][tx + i] = col ? Tile.T_COL_TOP : Tile.T_CELLA;
   deco[ty + 3][tx + i] = col ? Tile.T_COL_MID : Tile.T_CELLA;
-  deco[ty + 4][tx + i] = Tile.T_STEPS;
+  if (i === 3) deco[ty + 4][tx + i] = Tile.H_DOOR;
+  else if (col) deco[ty + 4][tx + i] = Tile.T_COL_MID;
+  else deco[ty + 4][tx + i] = Tile.H_WALL;
+  deco[ty + 5][tx + i] = Tile.T_STEPS;
 }
 // shadowed cella behind the colonnade
 for (let i = 0; i < 7; i++) {
-  fillGround(tx + i, ty + 2, tx + i, ty + 3, Tile.T_FLOOR);
+  fillGround(tx + i, ty + 2, tx + i, ty + 4, Tile.T_FLOOR);
 }
+// pool terrace ledge + stairs near pond
+fillGround(22, 3, 27, 3, Tile.CLIFF_TOP);
+fillGround(22, 4, 27, 4, Tile.CLIFF_FACE);
+fillGround(24, 4, 25, 4, Tile.T_STEPS);
 
 // --- city wall along the bottom (3 tall: crenellation + 2 body courses), with gate ---
 for (let x = 0; x < W; x++) {
@@ -174,11 +182,16 @@ deco[12][26] = Tile.FLOWERS_GOLD;
 deco[8][8] = Tile.BOULDER;
 deco[11][14] = Tile.FLOWERS_GOLD;
 
-// 2-tall column pair framing the road
-deco[8][11] = Tile.COLUMN_BASE;
-over[7][11] = Tile.COLUMN_TOP;
-deco[8][14] = Tile.COLUMN_BASE;
-over[7][14] = Tile.COLUMN_TOP;
+// 3-tall colonnade framing the road / plaza edge
+for (const cx of [11, 14, 17, 23, 26]) {
+  deco[10][cx] = Tile.COLUMN_BASE;
+  over[9][cx] = Tile.T_COL_MID;
+  over[8][cx] = Tile.COLUMN_TOP;
+}
+// banners + greenery accents
+deco[11][15] = Tile.BANNER;
+deco[5][22] = Tile.BUSH;
+deco[6][23] = Tile.FLOWERS_GOLD;
 
 async function main() {
   const tileset = await loadImage(join(ROOT, "apps/client/public/assets/tileset.png"));

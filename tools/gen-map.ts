@@ -496,14 +496,15 @@ for (let x = PX0 + 4; x <= PX1 - 4; x++) {
 }
 
 // grand temple at the north end of the plaza (faces south) — multi-height massing
+// 2–3 tile front facade: pediment + frieze + colonnade/cella + door row + steps
 function stampTemple(cx: number, topY: number, width: number) {
   // width odd, columns every 2 tiles
   const x0 = cx - (width - 1) / 2;
   const x1 = x0 + width - 1;
-  // rear podium / cella wall mass (taller silhouette) — 2 rows deep
-  for (let row = -2; row <= -1; row++) {
+  // rear podium / cella wall mass (taller silhouette) — 3 rows deep
+  for (let row = -3; row <= -1; row++) {
     for (let x = x0 - 2; x <= x1 + 2; x++) {
-      deco[idx(x, topY + row, W)] = Tile.T_FRIEZE;
+      deco[idx(x, topY + row, W)] = row === -1 ? Tile.T_FRIEZE : Tile.T_CELLA;
       terrain[idx(x, topY + row, W)] = TerrainKind.MARBLE;
     }
   }
@@ -516,14 +517,22 @@ function stampTemple(cx: number, topY: number, width: number) {
     if (x === cx - 1 || x === cx || x === cx + 1) continue;
     deco[idx(x, topY, W)] = Tile.T_FRIEZE;
   }
-  // double frieze band (entablature height)
+  // double frieze band (entablature height) — lit top of facade
   for (let x = x0; x <= x1; x++) deco[idx(x, topY + 1, W)] = Tile.T_FRIEZE;
   // colonnade (3 rows tall massing): columns on even offsets, shadowed cella between
+  // front facade height: frieze + col top + mid + base/door = 2–3 tile vertical wall read
   for (let x = x0; x <= x1; x++) {
     const isCol = (x - x0) % 2 === 0;
     deco[idx(x, topY + 2, W)] = isCol ? Tile.T_COL_TOP : Tile.T_CELLA;
     deco[idx(x, topY + 3, W)] = isCol ? Tile.T_COL_MID : Tile.T_CELLA;
-    deco[idx(x, topY + 4, W)] = isCol ? Tile.T_COL_MID : Tile.T_CELLA;
+    // door at center base of facade; engaged columns / wall elsewhere
+    if (x === cx) {
+      deco[idx(x, topY + 4, W)] = Tile.H_DOOR;
+    } else if (isCol) {
+      deco[idx(x, topY + 4, W)] = Tile.T_COL_MID;
+    } else {
+      deco[idx(x, topY + 4, W)] = Tile.H_WALL;
+    }
   }
   // triple steps (walkable terrace) — multi-level approach
   for (let s = 0; s < 3; s++) {
@@ -532,13 +541,45 @@ function stampTemple(cx: number, topY: number, width: number) {
       ground[idx(x, topY + 5 + s, W)] = Tile.T_STEPS;
     }
   }
-  // banners on outer columns + mid spans
+  // banners on outer columns + mid spans (accent massing)
   overhead[idx(x0, topY + 1, W)] = Tile.BANNER;
   overhead[idx(x1, topY + 1, W)] = Tile.BANNER;
   overhead[idx(cx - 4, topY + 1, W)] = Tile.BANNER;
   overhead[idx(cx + 4, topY + 1, W)] = Tile.BANNER;
+  overhead[idx(cx - 2, topY + 1, W)] = Tile.BANNER;
+  overhead[idx(cx + 2, topY + 1, W)] = Tile.BANNER;
+  // greenery / amphora accents flanking temple approach
+  for (const [ax, ay, t] of [
+    [x0 - 3, topY + 6, Tile.BUSH],
+    [x1 + 3, topY + 6, Tile.BUSH],
+    [x0 - 2, topY + 7, Tile.FLOWERS_RED],
+    [x1 + 2, topY + 7, Tile.FLOWERS_GOLD],
+    [x0 - 4, topY + 5, Tile.AMPHORA],
+    [x1 + 4, topY + 5, Tile.AMPHORA],
+    [cx - 6, topY + 8, Tile.TREE_TRUNK],
+    [cx + 6, topY + 8, Tile.TREE_TRUNK],
+  ] as const) {
+    const i = idx(ax, ay, W);
+    if (deco[i] === 0 && terrain[i] !== TerrainKind.WATER) {
+      deco[i] = t;
+      if (t === Tile.TREE_TRUNK) overhead[idx(ax, ay - 1, W)] = Tile.TREE_CANOPY;
+    }
+  }
 }
-stampTemple(511, PY0 + 3, 21);
+// Wider multi-tile temple massing for ≥40% vertical structure in approach frame
+stampTemple(511, PY0 + 3, 23);
+
+/** Place a 3-tile-tall y-sorted plaza column: top + mid overhead, base deco. */
+function stampCol3(x: number, y: number): boolean {
+  const i = idx(x, y, W);
+  if (deco[i] !== 0) return false;
+  if (terrain[i] === TerrainKind.WATER) return false;
+  deco[i] = Tile.COLUMN_BASE;
+  // mid shaft one tile north; capital two tiles north
+  if (y - 1 >= 0) overhead[idx(x, y - 1, W)] = Tile.T_COL_MID;
+  if (y - 2 >= 0) overhead[idx(x, y - 2, W)] = Tile.COLUMN_TOP;
+  return true;
+}
 
 // secondary side shrines (smaller temples) on E/W plaza terraces + south exedra
 function stampShrine(cx: number, topY: number) {
@@ -622,7 +663,7 @@ for (let t = 0; t < 4; t++) {
   }
 }
 
-// Colonnade ring around fountain (mood-ref freestanding pillars)
+// Colonnade ring around fountain — 3-tile-tall y-sorted columns
 for (const [cx2, cy2] of [
   [504, 513],
   [519, 513],
@@ -649,11 +690,50 @@ for (const [cx2, cy2] of [
   [508, 525],
   [515, 525],
 ]) {
-  if (deco[idx(cx2, cy2, W)] !== 0) continue;
-  const k = terrain[idx(cx2, cy2, W)];
-  if (k === TerrainKind.WATER) continue;
-  deco[idx(cx2, cy2, W)] = Tile.COLUMN_BASE;
-  overhead[idx(cx2, cy2 - 1, W)] = Tile.COLUMN_TOP;
+  stampCol3(cx2, cy2);
+}
+
+// Pool terrace elevation: ledge/cliff ring + stairs on the four cardinals
+// Raised marble terrace edge just outside the apron (r2 ~55–70)
+for (let y = 508; y <= 529; y++) {
+  for (let x = 501; x <= 522; x++) {
+    const dx = x - FCX;
+    const dy = y - FCY;
+    const r2 = dx * dx + dy * dy;
+    if (r2 < 55 || r2 > 72) continue;
+    const i = idx(x, y, W);
+    if (terrain[i] === TerrainKind.WATER) continue;
+    // south-facing faces get cliff face; tops get cliff top
+    const southOpen = terrain[idx(x, y + 1, W)] !== TerrainKind.WATER && (dy > 0 || Math.abs(dx) > Math.abs(dy));
+    if (dy >= 2 && Math.abs(dx) <= Math.abs(dy) + 1) {
+      ground[i] = Tile.CLIFF_FACE;
+      terrain[i] = TerrainKind.ROCK;
+      deco[i] = 0;
+    } else if (r2 <= 62) {
+      ground[i] = Tile.CLIFF_TOP;
+      terrain[i] = TerrainKind.ROCK;
+      deco[i] = 0;
+    }
+    void southOpen;
+  }
+}
+// Stairs cutting through the ledge on N/S/E/W approaches
+for (let t = 0; t < 3; t++) {
+  for (const [sx, sy] of [
+    [511, 509 + t],
+    [512, 509 + t],
+    [511, 526 + t],
+    [512, 526 + t],
+    [504 + t, 518],
+    [504 + t, 519],
+    [517 + t, 518],
+    [517 + t, 519],
+  ]) {
+    const i = idx(sx, sy, W);
+    ground[i] = Tile.T_STEPS;
+    terrain[i] = TerrainKind.MARBLE;
+    deco[i] = 0;
+  }
 }
 
 // Hero statues on pedestals — dense cardinal + corner placement (mood density)
@@ -696,30 +776,56 @@ for (const [sx, sy] of [
   overhead[idx(sx, sy - 1, W)] = Tile.STATUE_TOP;
 }
 
-// Processional colonnades along plaza frame + avenue edges
-for (let x = PX0 + 5; x <= PX1 - 5; x += 2) {
-  for (const py of [PY0 + 3, PY0 + 5, PY1 - 3, PY1 - 5]) {
-    if (Math.abs(x - 511) < 5) continue;
-    if (deco[idx(x, py, W)] !== 0) continue;
-    deco[idx(x, py, W)] = Tile.COLUMN_BASE;
-    overhead[idx(x, py - 1, W)] = Tile.COLUMN_TOP;
+// Processional colonnades along plaza frame + avenue edges (3-tile-tall, denser)
+for (let x = PX0 + 3; x <= PX1 - 3; x += 2) {
+  for (const py of [PY0 + 2, PY0 + 4, PY0 + 6, PY1 - 2, PY1 - 4, PY1 - 6]) {
+    if (Math.abs(x - 511) < 4) continue;
+    stampCol3(x, py);
   }
 }
-for (let y = PY0 + 7; y <= PY1 - 7; y += 2) {
-  for (const px of [PX0 + 3, PX0 + 5, PX1 - 3, PX1 - 5]) {
-    if (Math.abs(y - 518) < 5) continue;
-    if (deco[idx(px, y, W)] !== 0) continue;
-    deco[idx(px, y, W)] = Tile.COLUMN_BASE;
-    overhead[idx(px, y - 1, W)] = Tile.COLUMN_TOP;
+for (let y = PY0 + 5; y <= PY1 - 5; y += 2) {
+  for (const px of [PX0 + 2, PX0 + 4, PX0 + 6, PX1 - 2, PX1 - 4, PX1 - 6]) {
+    if (Math.abs(y - 518) < 4) continue;
+    stampCol3(px, y);
   }
 }
-// Double colonnade along N-S avenue edges
+// Extra inner colonnade ring for vertical massing (~40%+ frame read)
+for (let x = PX0 + 8; x <= PX1 - 8; x += 3) {
+  for (const py of [PY0 + 8, PY1 - 8]) {
+    if (Math.abs(x - 511) < 6) continue;
+    stampCol3(x, py);
+  }
+}
+for (let y = PY0 + 10; y <= PY1 - 10; y += 3) {
+  for (const px of [PX0 + 8, PX1 - 8]) {
+    if (Math.abs(y - 518) < 6) continue;
+    stampCol3(px, y);
+  }
+}
+// Dense 3-tile colonnade filling temple approach frame (structure-only ≥40%)
+// Rows just south of temple steps through mid-approach; every other x
+for (let y = PY0 + 11; y <= PY0 + 20; y += 2) {
+  for (let x = 500; x <= 522; x += 2) {
+    if (x >= 508 && x <= 515) continue; // keep N-S avenue open
+    stampCol3(x, y);
+  }
+}
+// Side wall runs (engaged facade mass) flanking temple approach
+for (let y = PY0 + 3; y <= PY0 + 14; y++) {
+  for (const px of [499, 500, 523, 524]) {
+    const i = idx(px, y, W);
+    if (deco[i] !== 0) continue;
+    if (y === PY0 + 3) deco[i] = Tile.T_FRIEZE;
+    else if (y === PY0 + 4) deco[i] = Tile.T_COL_TOP;
+    else deco[i] = Tile.H_WALL_COL;
+    terrain[i] = TerrainKind.MARBLE;
+  }
+}
+// Double colonnade along N-S avenue edges — full 3-tile columns
 for (let y = PY0 + 10; y <= PY1 - 10; y += 2) {
   for (const px of [506, 517]) {
     if (Math.abs(y - FCY) < 9) continue;
-    if (deco[idx(px, y, W)] !== 0) continue;
-    if (terrain[idx(px, y, W)] === TerrainKind.WATER) continue;
-    deco[idx(px, y, W)] = Tile.PILLAR;
+    stampCol3(px, y);
   }
 }
 // Garden props on grass courts — purposeful clusters, open rest between (~1/20)

@@ -50,7 +50,10 @@ ok("no 70-iter scatter loop", !/for\s*\(\s*let\s+i\s*=\s*0;\s*i\s*<\s*70/.test(g
 ok("no % 19 hash noise", !/%\s*19/.test(genSrc));
 ok("no % 17 hash noise", !/%\s*17/.test(genSrc));
 ok("uses placeStamps / paintGroundWithStamps", /placeStamps|paintGroundWithStamps/.test(genSrc));
-ok("stamps enforce min spacing ≥ 3", /STAMP_MIN_SPACING\s*=\s*3/.test(stampsSrc));
+ok(
+  "stamps enforce min spacing ≥ 3",
+  /STAMP_MIN_SPACING\s*=\s*([3-9]|\d{2,})/.test(stampsSrc)
+);
 ok("stamps enforce edge margin ≥ 2", /STAMP_EDGE_MARGIN\s*=\s*2/.test(stampsSrc));
 
 const GROUND_TILES = [

@@ -2,12 +2,14 @@
  * Generates the Dominion tileset (16×16 tiles, Pokémon-DS / DP inspired,
  * Greco-Roman capital theme) plus a labeled 4× preview contact sheet.
  *
- * Graphics rules (Steps 2–5):
+ * Graphics rules:
  * - Single global ≤48 color palette; painters only select ramp entries.
  * - No paint-time mix()/shade()/desaturate() producing new colors.
- * - Ground detail via ≤12 authored stamps (no per-pixel scatter noise).
- * - Ground stays in a narrow value band; props get full form shading.
- * - Props: 3/4 top-down, selective outline (ramp darkest), elliptical contact shadow, ≥3 ramp values.
+ * - Ground: flat uniform lighting (no ditherVGradient); quiet 1px slab seams on paved.
+ * - Terrain transitions: hard-edged border (1–2px light+dark band), no Bayer feather.
+ * - Water: solid rim/coping + 1px foam + sparse wave stamps (no dot spray).
+ * - Vertical gradients (lit top / dark base) only on walls/facades/columns.
+ * - Props: solid hard-edged SE drop/contact shadows, selective outline, ≥3 ramp values.
  *
  * Output:
  *   apps/client/public/assets/tileset.png
@@ -103,26 +105,63 @@ function dirtPath(ctx: Ctx, seed: number) {
   });
 }
 
-function stoneRoad(ctx: Ctx, seed: number, offset: boolean) {
-  // Quiet cobbles: 3-stop band only (ground value hierarchy)
+/**
+ * Quiet 1px slab seams — one ramp step from floor fill.
+ * Floor fill is the lighter of the quiet mid pair; BR seam is strictly the darker
+ * of that pair (visible against fill); TL seam is one step lighter than fill when
+ * the ramp has it, else the fill's pair-light (still ≥ fill luminance).
+ */
+function paintSlabSeamsFromRamp(ctx: Ctx, ramp: readonly string[], size = T): void {
+  const lum = (hex: string) => {
+    const h = hex.startsWith("#") ? hex.slice(1) : hex;
+    const r = parseInt(h.slice(0, 2), 16) / 255;
+    const g = parseInt(h.slice(2, 4), 16) / 255;
+    const b = parseInt(h.slice(4, 6), 16) / 255;
+    const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  // Same quiet consecutive pair as paintGroundWithStamps
+  let bestI = 0;
+  let bestSpread = Infinity;
+  for (let i = 0; i < ramp.length - 1; i++) {
+    const s = Math.abs(lum(ramp[i]!) - lum(ramp[i + 1]!));
+    if (s < bestSpread) {
+      bestSpread = s;
+      bestI = i;
+    }
+  }
+  const a = ramp[bestI]!;
+  const b = ramp[bestI + 1]!;
+  const dark = lum(a) <= lum(b) ? a : b; // BR seam — darker than fill
+  const fill = lum(a) <= lum(b) ? b : a; // matches ground fill (lighter of pair)
+  // TL light: prefer next ramp step above fill when available
+  const fillIdx = ramp.findIndex((c) => c === fill);
+  const light =
+    fillIdx >= 0 && fillIdx + 1 < ramp.length && lum(ramp[fillIdx + 1]!) > lum(fill)
+      ? ramp[fillIdx + 1]!
+      : fill;
+  // Must paint dark BR even if light collapses to fill (still one visible seam pair)
+  hline(ctx, 0, size - 1, size, dark);
+  vline(ctx, size - 1, 0, size, dark);
+  if (light !== fill) {
+    hline(ctx, 0, 0, size - 1, light);
+    vline(ctx, 0, 1, size - 2, light);
+  } else {
+    // Optional TL still marks edge with fill's pair partner when no brighter step:
+    // use a 1px lighter-or-equal highlight from the higher of pair (already fill) —
+    // skip duplicate. BR dark alone is the required legible seam.
+  }
+}
+
+function stoneRoad(ctx: Ctx, seed: number, _offset: boolean) {
+  // Quiet paved stone: flat fill + stamps + legible 1px slab seams (no multi-block grid scream)
   const r = rng(seed);
   paintGroundWithStamps(ctx, RAMPS.stone, r, {
     stampNames: ["pebble", "wear", "gravel"],
-    countMin: 3,
-    countMax: 5,
+    countMin: 2,
+    countMax: 4,
   });
-  // subtle block joints using band shadow only (contiguous lines, no orphans)
-  const band = RAMPS.stone;
-  const joint = band[1]!;
-  for (let row = 0; row < 4; row++) {
-    const sy = row * 4 + 3;
-    if (sy < T) hline(ctx, 0, sy, T, joint);
-    const shift = offset && row % 2 === 1 ? 2 : 0;
-    for (let col = 0; col < 4; col++) {
-      const sx = col * 4 + shift + 3;
-      if (sx >= 0 && sx < T) vline(ctx, sx, row * 4, 3, joint);
-    }
-  }
+  paintSlabSeamsFromRamp(ctx, RAMPS.stone);
 }
 
 function marbleFloor(ctx: Ctx, seed: number) {
@@ -131,9 +170,10 @@ function marbleFloor(ctx: Ctx, seed: number) {
     topIdx: 4,
     botIdx: 2,
     stampNames: ["vein", "wear", "crack", "dot_cluster"],
-    countMin: 3,
-    countMax: 5,
+    countMin: 2,
+    countMax: 4,
   });
+  paintSlabSeamsFromRamp(ctx, RAMPS.marble);
 }
 
 function marbleChecker(ctx: Ctx) {
@@ -143,9 +183,10 @@ function marbleChecker(ctx: Ctx) {
     topIdx: 3,
     botIdx: 1,
     stampNames: ["vein", "crack", "wear"],
-    countMin: 3,
-    countMax: 5,
+    countMin: 2,
+    countMax: 4,
   });
+  paintSlabSeamsFromRamp(ctx, RAMPS.marble);
 }
 
 function marbleFloor3(ctx: Ctx, seed: number) {
@@ -154,36 +195,71 @@ function marbleFloor3(ctx: Ctx, seed: number) {
     topIdx: 4,
     botIdx: 2,
     stampNames: ["vein", "dot_cluster", "wear"],
-    countMin: 3,
+    countMin: 2,
     countMax: 4,
   });
+  paintSlabSeamsFromRamp(ctx, RAMPS.marble);
 }
 
 function sandTile(ctx: Ctx, seed: number) {
+  // Horizontal ripple lines only — avoid 2×2 pebble clusters that form Bayer with base
   paintGroundWithStamps(ctx, RAMPS.sand, rng(seed), {
     baseIdx: 2,
     topIdx: 3,
     botIdx: 1,
-    stampNames: ["ripple", "pebble", "dot_cluster"],
-    countMin: 3,
-    countMax: 5,
+    stampNames: ["ripple", "wear"],
+    countMin: 2,
+    countMax: 3,
+    minSpacing: 5,
   });
 }
 
+/**
+ * Open water: flat fill + sparse wave stamps only (no dot spray, no vertical dither).
+ * Enough neighbor variation for texture score without Bayer spray.
+ */
 function waterTile(ctx: Ctx, phase: number) {
-  paintGroundWithStamps(ctx, RAMPS.water, rng(900 + phase * 17), {
-    stampNames: ["ripple", "sparkle", "dot_cluster"],
-    countMin: 3,
-    countMax: 5,
-  });
+  const W = PAL.water;
+  rect(ctx, 0, 0, T, T, W.base);
+  // sparse authored wave stamps (3–4 crests, phase-offset) — contiguous lines
+  const crests: Array<[number, number, number]> = [
+    [(2 + phase * 3) % 11, 3 + (phase % 3), 4],
+    [(6 + phase * 5) % 11, 7 + ((phase + 1) % 2), 3],
+    [(1 + phase * 2) % 10, 11, 5],
+    [(8 + phase) % 12, 14, 3],
+  ];
+  for (const [cx, cy, len] of crests) {
+    if (cy >= T) continue;
+    hline(ctx, cx, cy, Math.min(len, T - cx), W.light);
+    if (cy > 0) px(ctx, cx + 1, cy - 1, W.pale);
+  }
 }
 
+/**
+ * Shore / rim tile: solid marble coping ring + 1px foam line + sparse interior waves.
+ * No Bayer/dot-spray feather.
+ */
 function waterShore(ctx: Ctx) {
-  paintGroundWithStamps(ctx, RAMPS.water, rng(44), {
-    stampNames: ["ripple", "sparkle"],
-    countMin: 3,
-    countMax: 4,
-  });
+  const W = PAL.water;
+  const M = PAL.marble;
+  // water interior
+  rect(ctx, 0, 0, T, T, W.base);
+  // solid rim/coping on outer edge (top-heavy shore read)
+  rect(ctx, 0, 0, T, 3, M.base);
+  hline(ctx, 0, 0, T, M.light);
+  hline(ctx, 0, 2, T, M.dark);
+  // side coping stubs
+  vline(ctx, 0, 3, 4, M.base);
+  vline(ctx, T - 1, 3, 4, M.base);
+  px(ctx, 0, 3, M.light);
+  px(ctx, T - 1, 3, M.dark);
+  // 1px foam line under coping
+  hline(ctx, 1, 3, T - 2, W.pale);
+  // sparse interior wave stamps (not spray)
+  hline(ctx, 3, 7, 4, W.light);
+  px(ctx, 5, 6, W.pale);
+  hline(ctx, 8, 11, 3, W.light);
+  px(ctx, 2, 13, W.light);
 }
 
 function rockGround(ctx: Ctx, seed: number) {
@@ -243,7 +319,7 @@ function flowers(ctx: Ctx, color: string, colorLight: string) {
 
 function bush(ctx: Ctx) {
   const C = PAL.canopy;
-  dropShadow(ctx, 8, 14.5, 6, 1.6);
+  dropShadow(ctx, 9.5, 15.2, 5.5, 1.4);  // SE offset solid
   contactShadow(ctx, 3, 14, 10);
   // volume: lit top-left, mid front
   rect(ctx, 3, 4, 10, 9, C.base);
@@ -258,7 +334,7 @@ function bush(ctx: Ctx) {
 
 function boulder(ctx: Ctx) {
   const R = PAL.rock;
-  dropShadow(ctx, 8, 14, 6, 1.5);
+  dropShadow(ctx, 9.5, 14.8, 5.5, 1.3);  // SE offset solid
   contactShadow(ctx, 3, 13, 10);
   // 3/4 rock volume
   rect(ctx, 3, 5, 10, 8, R.base);
@@ -272,7 +348,7 @@ function boulder(ctx: Ctx) {
 
 function treeTrunk(ctx: Ctx) {
   const Tr = PAL.trunk;
-  dropShadow(ctx, 8, 15, 5, 1.4);
+  dropShadow(ctx, 9.5, 15.4, 4.5, 1.2);  // SE offset solid
   contactShadow(ctx, 2, 15, 12);
   rect(ctx, 5, 0, 6, 14, Tr.base);
   vline(ctx, 5, 0, 14, Tr.light);
@@ -305,7 +381,7 @@ function treeCanopy(ctx: Ctx) {
 
 function pillarSingle(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 8.5, 15.2, 7, 1.8);
+  dropShadow(ctx, 10, 15.5, 6, 1.5);  // SE offset solid
   contactShadow(ctx, 1, 15, 14);
   // abacus top (lit)
   rect(ctx, 2, 0, 12, 2, M.light);
@@ -338,7 +414,7 @@ function pillarSingle(ctx: Ctx) {
 
 function columnBase(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 8, 15.2, 6.5, 1.6);
+  dropShadow(ctx, 9.5, 15.5, 5.5, 1.4);  // SE offset solid
   contactShadow(ctx, 2, 15, 12);
   rect(ctx, 5, 0, 6, 11, M.base);
   vline(ctx, 5, 0, 11, M.light);
@@ -409,7 +485,7 @@ function statueTop(ctx: Ctx) {
 
 function statueBase(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 8, 14.8, 7.5, 1.8);
+  dropShadow(ctx, 9.5, 15.2, 6.5, 1.5);  // SE offset solid
   contactShadow(ctx, 1, 14, 14);
   rect(ctx, 3, 0, 10, 3, M.base);
   hline(ctx, 3, 0, 10, M.light);
@@ -439,7 +515,7 @@ function paintFountain(fctx: Ctx) {
   const W = PAL.water;
   const cx = 16;
   const cy = 16;
-  dropShadow(fctx, 16, 28, 14, 3.5);
+  dropShadow(fctx, 18, 29, 12, 3.0);  // SE offset solid
   contactShadow(fctx, 4, 29, 24);
   for (let y = 0; y < 32; y++) {
     for (let x = 0; x < 32; x++) {
@@ -622,14 +698,19 @@ function paintRoofBand(rctx: Ctx, w: number, upper: boolean) {
 
 function paintWallStrip(wctx: Ctx, w: number) {
   const M = PAL.marble;
+  // Vertical form: lit top → mid → shadowed base (walls only — not floors)
   rect(wctx, 0, 0, w, T, M.base);
+  rect(wctx, 0, 0, w, 4, M.light); // lit top band
   rect(wctx, 0, 0, w, 3, PAL.crimson);
   hline(wctx, 0, 0, w, PAL.crimsonD);
   for (let x = 1; x < w; x += 4) hline(wctx, x, 1, 2, PAL.gold);
-  hline(wctx, 0, 3, w, M.deep);
-  hline(wctx, 0, 4, w, M.light);
-  for (let x = 0; x < w; x += 5) vline(wctx, x, 5, 8, M.vein);
-  hline(wctx, 0, T - 3, w, M.dark);
+  // awning stripe under frieze (accent)
+  hline(wctx, 0, 3, w, PAL.goldL);
+  hline(wctx, 0, 4, w, M.deep);
+  hline(wctx, 0, 5, w, M.light);
+  for (let x = 0; x < w; x += 5) vline(wctx, x, 6, 6, M.vein);
+  // shadowed base
+  rect(wctx, 0, T - 4, w, 2, M.dark);
   rect(wctx, 0, T - 2, w, 2, M.cream);
   hline(wctx, 0, T - 1, w, M.deep);
 }
@@ -787,12 +868,11 @@ function templeFloor(ctx: Ctx, seed: number) {
     topIdx: 4,
     botIdx: 2,
     stampNames: ["vein", "wear"],
-    countMin: 3,
-    countMax: 4,
+    countMin: 2,
+    countMax: 3,
   });
-  // slab joints from ramp only
-  hline(ctx, 0, 7, T, PAL.marble.dark);
-  vline(ctx, 7, 0, 8, PAL.marble.dark);
+  // quiet slab seams (BR dark + TL light) — DP-legible grid
+  paintSlabSeamsFromRamp(ctx, RAMPS.marble);
 }
 
 function cityWallBody(ctx: Ctx, seed: number) {
@@ -953,7 +1033,7 @@ function rug(ctx: Ctx) {
 
 function table(ctx: Ctx) {
   const W = PAL.wood;
-  dropShadow(ctx, 8, 14, 7, 1.5);
+  dropShadow(ctx, 9.5, 14.8, 6, 1.3);  // SE offset solid
   contactShadow(ctx, 2, 14, 12);
   // top face lit
   rect(ctx, 2, 4, 12, 4, W.light);
@@ -972,7 +1052,7 @@ function table(ctx: Ctx) {
 
 function amphora(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 8, 14.5, 5, 1.4);
+  dropShadow(ctx, 9.5, 15.2, 4.5, 1.2);  // SE offset solid
   contactShadow(ctx, 4, 14, 8);
   // body volume
   rect(ctx, 5, 4, 6, 8, M.base);
@@ -998,7 +1078,7 @@ function amphora(ctx: Ctx) {
 
 function bed(ctx: Ctx) {
   const W = PAL.wood;
-  dropShadow(ctx, 8, 14, 7, 1.4);
+  dropShadow(ctx, 9.5, 14.8, 6, 1.2);  // SE offset solid
   contactShadow(ctx, 1, 14, 14);
   rect(ctx, 1, 6, 14, 7, W.base);
   rect(ctx, 2, 5, 12, 3, W.light); // top blanket
@@ -1016,7 +1096,7 @@ function Mlight() {
 }
 
 function banner(ctx: Ctx) {
-  dropShadow(ctx, 8, 14, 4, 1.2);
+  dropShadow(ctx, 9.5, 14.8, 3.5, 1.1);  // SE offset solid
   // pole
   vline(ctx, 7, 0, 4, PAL.wood.dark);
   vline(ctx, 8, 0, 4, PAL.wood.base);

@@ -12,9 +12,10 @@ import { STAMPS, type Stamp, type RampName, RAMPS } from "./palette.js";
 export type Rng = () => number;
 
 export const STAMP_EDGE_MARGIN = 2;
-export const STAMP_MIN_SPACING = 3;
-export const STAMP_COUNT_MIN = 3;
-export const STAMP_COUNT_MAX = 7;
+/** Chebyshev gap between stamps — keep high enough that accent blobs never form 2×2 Bayer with base. */
+export const STAMP_MIN_SPACING = 4;
+export const STAMP_COUNT_MIN = 2;
+export const STAMP_COUNT_MAX = 5;
 
 /** Parse #rrggbb → relative luminance 0–1. */
 function lum(hex: string): number {
@@ -62,9 +63,18 @@ export function blitStamp(
   ramp: readonly string[]
 ): void {
   const [a, b] = quietPair(ramp);
-  for (const [dx, dy, ri] of stamp.pixels) {
-    // even ramp idx → base a, odd → accent b
-    px(ctx, ox + dx, oy + dy, ri % 2 === 0 ? a : b);
+  // Stamp body = darker of quiet pair (fill is the lighter) — contiguous, no Bayer.
+  const la =
+    0.2126 * (parseInt(a.slice(1, 3), 16) / 255) +
+    0.7152 * (parseInt(a.slice(3, 5), 16) / 255) +
+    0.0722 * (parseInt(a.slice(5, 7), 16) / 255);
+  const lb =
+    0.2126 * (parseInt(b.slice(1, 3), 16) / 255) +
+    0.7152 * (parseInt(b.slice(3, 5), 16) / 255) +
+    0.0722 * (parseInt(b.slice(5, 7), 16) / 255);
+  const accent = la <= lb ? a : b;
+  for (const [dx, dy] of stamp.pixels) {
+    px(ctx, ox + dx, oy + dy, accent);
   }
 }
 
@@ -137,7 +147,11 @@ export function placeStamps(
   return out;
 }
 
-/** Quiet 2-color ground + stamps. */
+/**
+ * Quiet 2-color ground + stamps — flat uniform fill (no vertical gradient bands).
+ * Fill uses the LIGHTER of the quiet pair so BR slab seams (darker of pair) stay visible.
+ * Stamps blit the darker accent for quiet mid-tone detail.
+ */
 export function paintGroundWithStamps(
   ctx: Ctx,
   ramp: readonly string[],
@@ -145,20 +159,28 @@ export function paintGroundWithStamps(
   opts: PlaceOpts = {}
 ): void {
   const T = opts.tileSize ?? 16;
-  const [base, accent] = quietPair(ramp);
+  const [a, b] = quietPair(ramp);
+  // Prefer brighter as floor fill so dark BR seams + stamp accents read against it
+  const la = relativeLum(a);
+  const lb = relativeLum(b);
+  const fill = la >= lb ? a : b;
 
   for (let y = 0; y < T; y++) {
     for (let x = 0; x < T; x++) {
-      px(ctx, x, y, base);
+      px(ctx, x, y, fill);
     }
-  }
-  // contiguous top/bottom accent bands (still only 2 colors)
-  for (let x = 0; x < T; x++) {
-    px(ctx, x, 0, accent);
-    px(ctx, x, T - 1, accent);
   }
 
   placeStamps(ctx, ramp, rng, opts);
+}
+
+function relativeLum(hex: string): number {
+  const h = hex.startsWith("#") ? hex.slice(1) : hex;
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
 export function rampOf(name: RampName): readonly string[] {

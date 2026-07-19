@@ -166,8 +166,9 @@ export function ditherVGradient(
 }
 
 /**
- * Elliptical contact / cast shadow under an object footprint.
- * Uses only opaque palette colors (no new alpha variants).
+ * Solid hard-edged elliptical cast/contact shadow under an object footprint.
+ * Single opaque palette value only — no dither soft edge field.
+ * Light is NW → shadow bias SE (caller should offset cx/cy slightly SE of caster).
  */
 export function dropShadow(
   ctx: Ctx,
@@ -181,22 +182,15 @@ export function dropShadow(
     for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
       const dx = (x + 0.5 - cx) / Math.max(0.5, rx);
       const dy = (y + 0.5 - cy) / Math.max(0.5, ry);
-      const d2 = dx * dx + dy * dy;
-      if (d2 > 1) continue;
-      const cover = (1 - d2) * (1 - d2);
-      // Dither density for soft edge — still only palette ink / soft
-      if (cover < 0.35) {
-        if (ditherThreshold(x, y) > cover * 1.2) continue;
-        px(ctx, x, y, STYLE.shadowSoft);
-      } else {
-        px(ctx, x, y, color);
-      }
+      if (dx * dx + dy * dy > 1) continue;
+      px(ctx, x, y, color);
     }
   }
 }
 
 /**
- * Dark contact AO oval / line where object meets ground (tighter than drop shadow).
+ * Solid hard-edged contact AO line where object meets ground (footprint strip).
+ * Single opaque value — no dither skip, no soft second tone.
  */
 export function contactShadow(
   ctx: Ctx,
@@ -206,11 +200,7 @@ export function contactShadow(
   color: string = STYLE.contactAO
 ): void {
   for (let x = x0; x < x0 + w; x++) {
-    const edge = Math.min(x - x0, x0 + w - 1 - x);
-    const t = edge / Math.max(1, w / 2);
-    if (t + 0.25 < ditherThreshold(x, y)) continue;
     px(ctx, x, y, color);
-    if (t > 0.4 && y > 0) px(ctx, x, y - 1, STYLE.shadowSoft);
   }
 }
 
@@ -376,7 +366,11 @@ export function scaleCanvas(src: Canvas, factor: number): Canvas {
 
 /**
  * Paint blob transition: background fill + foreground coverage from mask,
- * with dithered edge feathering (no hard seam).
+ * with a hard threshold cut (no Bayer feather field).
+ *
+ * After the hard cut, a 1–2px authored border band is drawn along the FG|BG
+ * boundary: light edge on the FG side + dark line on the BG side (solid colors
+ * sampled from each material's pixels — never synthesized RGB).
  */
 export function paintBlobTransition(
   ctx: Ctx,
@@ -394,28 +388,85 @@ export function paintBlobTransition(
   const fgData = fg.ctx.getImageData(0, 0, size, size).data;
   const out = ctx.createImageData(size, size);
   const d = out.data;
+  const isFg: boolean[] = new Array(size * size);
+
+  // Hard threshold — solid FG or BG, no dither band
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = (y * size + x) * 4;
       const cover = coverageAt(mask, x, y, size);
-      // Wider dither band for soft feathered seams (DP-style edge blend)
-      const edgeSoft = 0.32;
-      const lo = 0.5 - edgeSoft;
-      const hi = 0.5 + edgeSoft;
-      let pickFg: boolean;
-      if (cover >= hi) pickFg = true;
-      else if (cover <= lo) pickFg = false;
-      else {
-        const t = (cover - lo) / (hi - lo);
-        pickFg = t > ditherThreshold(x, y);
-      }
+      const pickFg = cover >= 0.5;
+      isFg[y * size + x] = pickFg;
       const src = pickFg ? fgData : bgData;
-      // Pick existing palette pixels only — never synthesize new RGB.
-      d[i] = src[i];
-      d[i + 1] = src[i + 1];
-      d[i + 2] = src[i + 2];
-      d[i + 3] = src[i + 3];
+      d[i] = src[i]!;
+      d[i + 1] = src[i + 1]!;
+      d[i + 2] = src[i + 2]!;
+      d[i + 3] = src[i + 3]!;
     }
   }
+
+  // Authored 1–2px light-edge + dark-line band along FG|BG boundary
+  const lumAt = (data: Uint8ClampedArray, i: number) =>
+    0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
+
+  // Prefetch a light FG pixel and a dark BG pixel from each material sample
+  let fgLightI = 0;
+  let fgLightL = -1;
+  let bgDarkI = 0;
+  let bgDarkL = 999;
+  for (let i = 0; i < size * size * 4; i += 4) {
+    if (fgData[i + 3]! >= 200) {
+      const L = lumAt(fgData, i);
+      if (L > fgLightL) {
+        fgLightL = L;
+        fgLightI = i;
+      }
+    }
+    if (bgData[i + 3]! >= 200) {
+      const L = lumAt(bgData, i);
+      if (L < bgDarkL) {
+        bgDarkL = L;
+        bgDarkI = i;
+      }
+    }
+  }
+
+  const copyPx = (dstI: number, src: Uint8ClampedArray, srcI: number) => {
+    d[dstI] = src[srcI]!;
+    d[dstI + 1] = src[srcI + 1]!;
+    d[dstI + 2] = src[srcI + 2]!;
+    d[dstI + 3] = 255;
+  };
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const fi = y * size + x;
+      let border = false;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+        if (isFg[fi] !== isFg[ny * size + nx]) {
+          border = true;
+          break;
+        }
+      }
+      if (!border) continue;
+      const di = fi * 4;
+      if (isFg[fi]) {
+        // FG side of seam → 1px light edge
+        copyPx(di, fgData, fgLightI);
+      } else {
+        // BG side of seam → 1px dark line
+        copyPx(di, bgData, bgDarkI);
+      }
+    }
+  }
+
   ctx.putImageData(out, 0, 0);
 }

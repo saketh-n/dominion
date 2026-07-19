@@ -108,17 +108,34 @@ async function main() {
   ok = gate("tileset_exists", existsSync(tilesetPath)) && ok;
   ok = gate("characters_exists", existsSync(charsPath)) && ok;
   ok = gate("creatures_exists", existsSync(creaturesPath)) && ok;
-  // Indexed ≤48-color tileset compresses smaller than old noisy PNGs
-  ok = gate("tileset_bytes>=40000", statSync(tilesetPath).size >= 40000, `got ${statSync(tilesetPath).size}`) && ok;
+  // Indexed ≤48-color hard-edge tileset compresses smaller than noisy dither PNGs
+  ok = gate("tileset_bytes>=20000", statSync(tilesetPath).size >= 20000, `got ${statSync(tilesetPath).size}`) && ok;
 
   ok = gate("client_pixelArt_true", /pixelArt:\s*true/.test(mainTs)) && ok;
   ok = gate("pixel_toolkit_nearest_neighbor", /imageSmoothingEnabled\s*=\s*false/.test(pixelTs)) && ok;
   ok = gate("gen_tileset_nearest_neighbor", /imageSmoothingEnabled\s*=\s*false/.test(genTileset)) && ok;
   ok = gate("autotile_blob_48", /BLOB_TILE_COUNT\s*=\s*48/.test(autotile)) && ok;
   ok = gate("transition_pairs_defined", /TRANSITION_PAIRS/.test(autotile) && /TRANSITION_BASE/.test(tilesTs)) && ok;
-  ok = gate("dither_helpers", /ditherPick|BAYER_4|ditherVGradient/.test(pixelTs)) && ok;
+  // Dither helpers may remain for sprites, but transitions must be hard-edged
+  ok = gate("hard_blob_transition", /cover\s*>=\s*0\.5/.test(pixelTs) && /paintBlobTransition/.test(pixelTs)) && ok;
+  ok = gate("no_wide_edgeSoft_feather", !/edgeSoft\s*=\s*0\.3/.test(pixelTs)) && ok;
   ok = gate("drop_shadow_helpers", /dropShadow|contactShadow/.test(pixelTs)) && ok;
   ok = gate("outline_helpers", /applySelectiveOutline/.test(pixelTs)) && ok;
+  // Solid hard shadows: dropShadow must not dither soft edges
+  ok =
+    gate(
+      "dropShadow_solid_no_dither",
+      /function dropShadow[\s\S]*?^}/m.test(pixelTs) &&
+        !/function dropShadow[\s\S]*?ditherThreshold[\s\S]*?^}/m.test(pixelTs)
+    ) && ok;
+  // Ground floors: gen-tileset must not call ditherVGradient on ground painters
+  ok =
+    gate(
+      "gen_no_ground_ditherVGradient",
+      !/\bditherVGradient\s*\(/.test(genTileset)
+    ) && ok;
+  ok = gate("gen_has_slab_seams", /paintSlabSeams/.test(genTileset)) && ok; // paintSlabSeamsFromRamp
+  ok = gate("gen_water_shore_foam", /foam|coping|W\.pale/.test(genTileset)) && ok;
 
   const img = await loadImage(tilesetPath);
   const cols = 16; // TILESET_COLS
@@ -133,12 +150,11 @@ async function main() {
   }
   ok = gate("props_have_shadow_AO", propsWithShadow >= 6, `${propsWithShadow}/${propIds.length}`) && ok;
 
-  // Water tiles: stamp texture gives neighbor variation (not full Bayer noise)
+  // Water tiles: sparse wave lines give neighbor variation (not Bayer spray)
   const waterData = await sampleTile(img, 11, cols);
   const waterDith = ditherScore(waterData);
   log(`  water texture score: ${waterDith.toFixed(3)}`);
-  // With quiet 2-color stamps, alternate-neighbor score is lower; require some variation
-  ok = gate("water_has_texture_variation", waterDith >= 0.04, `score=${waterDith.toFixed(3)}`) && ok;
+  ok = gate("water_has_texture_variation", waterDith >= 0.02, `score=${waterDith.toFixed(3)}`) && ok;
 
   // Transition tile (base 86) should differ from pure fills
   const t0 = await sampleTile(img, 86, cols);

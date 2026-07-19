@@ -12,18 +12,45 @@ export const TALL_PROP_BASES: ReadonlySet<number> = new Set([
   Tile.STATUE_BASE,
   Tile.TREE_TRUNK,
   Tile.PILLAR, // 1-tile tall still gets sprite + shadow treatment
+  Tile.T_COL_MID, // temple shaft base when used as freestanding foot
 ]);
 
-/** Map base deco → overhead top tile (0 if single-tile). */
+/**
+ * Map base deco → overhead top tile (0 if single-tile).
+ * Kept for backward-compat; prefer TALL_PROP_STACK for multi-segment.
+ */
 export const TALL_PROP_TOP: Readonly<Record<number, number>> = {
   [Tile.COLUMN_BASE]: Tile.COLUMN_TOP,
   [Tile.STATUE_BASE]: Tile.STATUE_TOP,
   [Tile.TREE_TRUNK]: Tile.TREE_CANOPY,
   [Tile.PILLAR]: 0,
+  [Tile.T_COL_MID]: Tile.T_COL_TOP,
 };
+
+/**
+ * Full vertical stack of tile indices for a tall prop, ordered top → bottom.
+ * Bottom entry is the base (foot) tile. Length ≥ 1.
+ * Plaza colonnade columns are 3 tiles tall (capital + shaft + base).
+ */
+export const TALL_PROP_STACK: Readonly<Record<number, readonly number[]>> = {
+  [Tile.COLUMN_BASE]: [Tile.COLUMN_TOP, Tile.T_COL_MID, Tile.COLUMN_BASE],
+  [Tile.STATUE_BASE]: [Tile.STATUE_TOP, Tile.STATUE_BASE],
+  [Tile.TREE_TRUNK]: [Tile.TREE_CANOPY, Tile.TREE_TRUNK],
+  [Tile.PILLAR]: [Tile.PILLAR],
+  [Tile.T_COL_MID]: [Tile.T_COL_TOP, Tile.T_COL_MID, Tile.T_COL_MID],
+};
+
+/** All overhead/mid tiles that belong to a tall prop stack (suppressed on flat layers). */
+export function tallPropOverlayTiles(baseTile: number): readonly number[] {
+  const stack = TALL_PROP_STACK[baseTile];
+  if (!stack || stack.length <= 1) return [];
+  return stack.slice(0, -1);
+}
 
 /** Pixel height of the composed tall sprite. */
 export function tallPropPixelHeight(baseTile: number): number {
+  const stack = TALL_PROP_STACK[baseTile];
+  if (stack && stack.length > 0) return TILE_SIZE * stack.length;
   const top = TALL_PROP_TOP[baseTile] ?? 0;
   if (top) return TILE_SIZE * 2;
   return TILE_SIZE;

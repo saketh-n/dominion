@@ -6,6 +6,8 @@ import {
   tallPropDepth,
   tallPropWorldPos,
   TALL_PROP_TOP,
+  TALL_PROP_STACK,
+  tallPropOverlayTiles,
 } from "@game/shared";
 import { WorldModel } from "./WorldModel";
 import {
@@ -155,21 +157,30 @@ export class WindowedTilemap {
     // Tall prop bases are drawn as Y-sorted sprites — leave deco empty
     if (d !== 0 && isTallPropBase(d)) {
       this.deco.putTileAt(-1, tx, ty, false);
-      // Suppress matching overhead top tile (rendered into the tall sprite)
+      // Suppress stack overlay tiles that are composed into the tall sprite
+      const overlays = new Set(tallPropOverlayTiles(d));
       const top = TALL_PROP_TOP[d] ?? 0;
-      const o = w.overhead(wx, wy - 1);
-      // Still write local overhead if it's not the pair top on the cell above
-      // (handled when we visit the cell above). For the base cell, write overhead normally
-      // unless it's a top sitting wrongly on base.
+      if (top) overlays.add(top);
       const oHere = w.overhead(wx, wy);
-      this.overhead.putTileAt(oHere === 0 || oHere === top ? -1 : oHere, tx, ty, false);
-      void o;
+      this.overhead.putTileAt(oHere === 0 || overlays.has(oHere) ? -1 : oHere, tx, ty, false);
     } else {
       this.deco.putTileAt(d === 0 ? -1 : d, tx, ty, false);
       const o = w.overhead(wx, wy);
-      // Hide overhead tops that belong to a tall prop base below
-      const below = w.inBounds(wx, wy + 1) ? w.deco(wx, wy + 1) : 0;
-      if (below && isTallPropBase(below) && o === (TALL_PROP_TOP[below] ?? -1)) {
+      // Hide overhead segments that belong to a tall prop base below (1 or 2 tiles south)
+      let hide = false;
+      for (const dy of [1, 2]) {
+        const by = wy + dy;
+        if (!w.inBounds(wx, by)) continue;
+        const below = w.deco(wx, by);
+        if (!below || !isTallPropBase(below)) continue;
+        const overlays = tallPropOverlayTiles(below);
+        const top = TALL_PROP_TOP[below] ?? -1;
+        if (o === top || overlays.includes(o)) {
+          hide = true;
+          break;
+        }
+      }
+      if (hide) {
         this.overhead.putTileAt(-1, tx, ty, false);
       } else {
         this.overhead.putTileAt(o === 0 ? -1 : o, tx, ty, false);
@@ -267,7 +278,7 @@ export class WindowedTilemap {
     }
   }
 
-  /** Compose a 16×32 (or 16×16) texture from tileset frames for a tall prop. */
+  /** Compose a 16×N texture from tileset frames for a tall prop (N = stack height). */
   private ensureTallTexture(baseTile: number): string {
     const existing = this.tallFrameKeys.get(baseTile);
     if (existing && this.scene.textures.exists(existing)) return existing;
@@ -279,7 +290,7 @@ export class WindowedTilemap {
     }
 
     const h = tallPropPixelHeight(baseTile);
-    const topTile = TALL_PROP_TOP[baseTile] ?? 0;
+    const stack = TALL_PROP_STACK[baseTile] ?? [baseTile];
     const cols = 16; // TILESET_COLS
     const tileset = this.scene.textures.get("tileset").getSourceImage() as HTMLImageElement;
 
@@ -299,11 +310,9 @@ export class WindowedTilemap {
       ctx.drawImage(tileset as CanvasImageSource, sx, sy, TILE_SIZE, TILE_SIZE, 0, dy, TILE_SIZE, TILE_SIZE);
     };
 
-    if (topTile && h > TILE_SIZE) {
-      blitTile(topTile, 0);
-      blitTile(baseTile, TILE_SIZE);
-    } else {
-      blitTile(baseTile, 0);
+    // stack is top → bottom; blit from y=0 downward
+    for (let i = 0; i < stack.length; i++) {
+      blitTile(stack[i]!, i * TILE_SIZE);
     }
     canvas.refresh();
     this.tallFrameKeys.set(baseTile, key);

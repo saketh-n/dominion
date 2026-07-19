@@ -199,6 +199,78 @@ const genMap = readFileSync(join(ROOT, "tools/gen-map.ts"), "utf8");
 ok("gen-map forces base when neighbor non-base", /isNonBaseVariantTile/.test(genMap));
 ok("autotile uses weightedVariantFromUnit", /weightedVariantFromUnit/.test(readFileSync(join(ROOT, "packages/shared/src/autotile.ts"), "utf8")));
 ok("baseTileForTerrain(MARBLE,0) is MARBLE_FLOOR", baseTileForTerrain(TerrainKind.MARBLE, 0) === Tile.MARBLE_FLOOR);
+// Architecture massing (step 5)
+ok("gen-map has stampCol3 3-tile colonnade", /function stampCol3|stampCol3\s*\(/.test(genMap));
+ok("gen-map stampTemple has door facade", /H_DOOR/.test(genMap) && /function stampTemple/.test(genMap));
+ok("gen-map pool terrace has cliff/ledge", /CLIFF_FACE|CLIFF_TOP/.test(genMap) && /T_STEPS/.test(genMap));
+ok("gen-map stampTemple multi-row facade", /T_COL_TOP/.test(genMap) && /T_COL_MID/.test(genMap) && /T_FRIEZE/.test(genMap));
+
+// Plaza/temple approach frame: count vertical massing (deco+overhead+structure ground)
+if (existsSync(worldPath)) {
+  const world = JSON.parse(readFileSync(worldPath, "utf8")) as {
+    width: number;
+    layers: { ground: string; deco: string; overhead: string };
+  };
+  const gBuf = Buffer.from(world.layers.ground, "base64");
+  const dBuf = Buffer.from(world.layers.deco, "base64");
+  const oBuf = Buffer.from(world.layers.overhead, "base64");
+  const W = world.width;
+  // Structure-only vertical surfaces (walls/columns/facades/cliffs/roofs/statues).
+  // EXCLUDE flat props: T_STEPS, BUSH, AMPHORA, FOUNTAIN, BANNER, flowers.
+  const VERT = new Set([
+    Tile.COLUMN_BASE,
+    Tile.COLUMN_TOP,
+    Tile.T_COL_TOP,
+    Tile.T_COL_MID,
+    Tile.T_CELLA,
+    Tile.T_FRIEZE,
+    Tile.T_PED_W,
+    Tile.T_PED_M,
+    Tile.T_PED_E,
+    Tile.H_WALL,
+    Tile.H_WALL_WIN,
+    Tile.H_WALL_COL,
+    Tile.H_DOOR,
+    Tile.H_ROOF_NW,
+    Tile.H_ROOF_N,
+    Tile.H_ROOF_NE,
+    Tile.H_ROOF_W,
+    Tile.H_ROOF_M,
+    Tile.H_ROOF_E,
+    Tile.STATUE_BASE,
+    Tile.STATUE_TOP,
+    Tile.PILLAR,
+    Tile.TREE_TRUNK,
+    Tile.TREE_CANOPY,
+    Tile.CLIFF_FACE,
+    Tile.CLIFF_TOP,
+    Tile.W_BODY,
+    Tile.W_TOP,
+    Tile.W_GATE_L,
+    Tile.W_GATE_R,
+    Tile.W_GATE_TOP,
+  ]);
+  let cells = 0;
+  let vert = 0;
+  // Tight temple front + colonnade approach (typical screenshot frame)
+  for (let y = 478; y < 500; y++) {
+    for (let x = 500; x < 524; x++) {
+      cells++;
+      const i = (y * W + x) * 2;
+      const d = dBuf.readUInt16LE(i);
+      const o = oBuf.readUInt16LE(i);
+      const g = gBuf.readUInt16LE(i);
+      if (VERT.has(d) || VERT.has(o) || VERT.has(g)) vert++;
+    }
+  }
+  const frac = cells ? vert / cells : 0;
+  ok(
+    "temple front structure-only vertical tile frac ≥ 0.40",
+    frac >= 0.4,
+    `frac=${frac.toFixed(3)} vert=${vert}/${cells}`
+  );
+  ok("temple frame has substantial structure tiles", vert >= 100, `vert=${vert}`);
+}
 
 console.log(lines.join("\n"));
 console.log(`\n${passed} passed, ${failed} failed`);

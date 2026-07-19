@@ -38,12 +38,12 @@ export const P = {
   a1: "#b09860",
   a2: "#c0a868",
   a3: "#d0bc80",
-  // water 5
-  w0: "#243858",
-  w1: "#3a5a80",
-  w2: "#5a8ab0",
-  w3: "#6a96b8",
-  w4: "#88b4d0",
+  // water 5 — one step higher saturation (richer cyan-blue, less grey)
+  w0: "#1e3a62",
+  w1: "#2e5c92",
+  w2: "#4a8ec4",
+  w3: "#5aa0d0",
+  w4: "#78c0e8",
   // rock 3 (share d0 for deep)
   r1: "#686460",
   r2: "#787068",
@@ -179,6 +179,7 @@ export const STAMPS: readonly Stamp[] = [
     ],
   },
   {
+    // Solid 2×2 block (filled) — monochrome stamp cannot form internal Bayer
     name: "pebble",
     w: 2,
     h: 2,
@@ -190,48 +191,51 @@ export const STAMPS: readonly Stamp[] = [
     ],
   },
   {
+    // Contiguous polyline crack (no diagonal-only gaps vs base)
     name: "crack",
-    w: 4,
-    h: 3,
-    pixels: [
-      [0, 0, 0],
-      [1, 0, 1],
-      [1, 1, 0],
-      [2, 1, 1],
-      [3, 2, 0],
-    ],
-  },
-  {
-    name: "vein",
-    w: 4,
-    h: 3,
-    pixels: [
-      [0, 0, 1],
-      [1, 0, 2],
-      [2, 1, 1],
-      [3, 1, 2],
-      [3, 2, 1],
-    ],
-  },
-  {
-    name: "ripple",
     w: 4,
     h: 2,
     pixels: [
-      [0, 1, 1],
-      [1, 0, 3],
-      [2, 0, 3],
+      [0, 0, 0],
+      [1, 0, 1],
+      [2, 0, 0],
+      [2, 1, 1],
+      [3, 1, 0],
+    ],
+  },
+  {
+    // Contiguous vein line
+    name: "vein",
+    w: 4,
+    h: 2,
+    pixels: [
+      [0, 0, 1],
+      [1, 0, 2],
+      [2, 0, 1],
+      [3, 0, 2],
       [3, 1, 1],
     ],
   },
   {
+    // Solid horizontal wave crest — no staggered diagonals (those form Bayer with base fill)
+    name: "ripple",
+    w: 4,
+    h: 1,
+    pixels: [
+      [0, 0, 3],
+      [1, 0, 3],
+      [2, 0, 3],
+      [3, 0, 3],
+    ],
+  },
+  {
+    // Single sparkle pixel + neighbor (2px line, not 2×2 diagonal)
     name: "sparkle",
     w: 2,
-    h: 2,
+    h: 1,
     pixels: [
       [0, 0, 4],
       [1, 0, 3],
-      [0, 1, 3],
     ],
   },
   {
@@ -257,34 +261,35 @@ export const STAMPS: readonly Stamp[] = [
     ],
   },
   {
+    // Solid 2×1 bar (no L-gap checker with base)
     name: "wear",
     w: 2,
-    h: 2,
+    h: 1,
     pixels: [
       [0, 0, 3],
       [1, 0, 4],
-      [0, 1, 2],
     ],
   },
   {
+    // Solid 2×1 gravel bar
     name: "gravel",
     w: 2,
-    h: 2,
+    h: 1,
     pixels: [
       [0, 0, 0],
       [1, 0, 1],
-      [0, 1, 1],
     ],
   },
   {
+    // Solid 2×2 filled cluster
     name: "dot_cluster",
-    w: 3,
+    w: 2,
     h: 2,
     pixels: [
       [0, 0, 2],
       [1, 0, 3],
-      [2, 1, 2],
-      [1, 1, 1],
+      [0, 1, 1],
+      [1, 1, 2],
     ],
   },
 ];

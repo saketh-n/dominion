@@ -37,6 +37,11 @@ ok("statue base is tall prop", isTallPropBase(Tile.STATUE_BASE));
 ok("tree trunk is tall prop", isTallPropBase(Tile.TREE_TRUNK));
 ok("grass is not tall prop", !isTallPropBase(Tile.GRASS));
 ok("column pixel height > 16", tallPropPixelHeight(Tile.COLUMN_BASE) > 16, `h=${tallPropPixelHeight(Tile.COLUMN_BASE)}`);
+ok(
+  "plaza column is 3 tiles tall (48px)",
+  tallPropPixelHeight(Tile.COLUMN_BASE) === TILE_SIZE * 3,
+  `h=${tallPropPixelHeight(Tile.COLUMN_BASE)}`
+);
 ok("statue pixel height > 16", tallPropPixelHeight(Tile.STATUE_BASE) > TILE_SIZE);
 ok("column has top tile", TALL_PROP_TOP[Tile.COLUMN_BASE] === Tile.COLUMN_TOP);
 ok("statue has top tile", TALL_PROP_TOP[Tile.STATUE_BASE] === Tile.STATUE_TOP);
@@ -74,7 +79,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const wtm = readFileSync(join(ROOT, "apps/client/src/world/WindowedTilemap.ts"), "utf8");
 const ws = readFileSync(join(ROOT, "apps/client/src/scenes/WorldScene.ts"), "utf8");
 ok("WindowedTilemap has tall prop sprites", /tallProps|ensureTallTexture|tallPropDepth/.test(wtm));
-ok("WindowedTilemap composes height > TILE_SIZE", /tallPropPixelHeight|TILE_SIZE \* 2/.test(wtm));
+ok("WindowedTilemap composes multi-tile stack", /TALL_PROP_STACK|tallPropPixelHeight|tallPropOverlayTiles/.test(wtm));
 ok("player depth uses tileY * 0.001", /setDepth\s*\(\s*10\s*\+\s*this\.tileY\s*\*\s*0\.001\s*\)/.test(ws));
 ok("WorldScene refreshes tall prop depths", /refreshTallPropDepths/.test(ws));
 ok("TALL_PROP_BASES non-empty", TALL_PROP_BASES.size >= 3);

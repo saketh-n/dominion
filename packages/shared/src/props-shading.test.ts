@@ -46,10 +46,19 @@ ok("gen uses dropShadow", /\bdropShadow\s*\(/.test(genSrc));
 ok("gen uses contactShadow", /\bcontactShadow\s*\(/.test(genSrc));
 ok("gen uses applySelectiveOutline", /\bapplySelectiveOutline\s*\(/.test(genSrc));
 // outline uses ramp darkest / ink, not pure black #000
-ok(
-  "outline not pure black hex in STYLE",
-  !/outline:\s*"#000000"/.test(readFileSync(join(ROOT, "tools/pixel.ts"), "utf8"))
-);
+const pixelSrc = readFileSync(join(ROOT, "tools/pixel.ts"), "utf8");
+ok("outline not pure black hex in STYLE", !/outline:\s*"#000000"/.test(pixelSrc));
+// Solid hard-edged shadows only (no dither inside dropShadow body)
+{
+  const m = pixelSrc.match(/export function dropShadow\([\s\S]*?\n\}/);
+  ok("dropShadow function present", !!m);
+  ok("dropShadow has no dither soft edge", !!(m && !/ditherThreshold|ditherPick/.test(m[0]!)));
+}
+// Contact shadow is solid strip (no dither skip)
+{
+  const m = pixelSrc.match(/export function contactShadow\([\s\S]*?\n\}/);
+  ok("contactShadow has no dither", !!(m && !/ditherThreshold|ditherPick/.test(m[0]!)));
+}
 
 const img = await loadImage(join(ROOT, "apps/client/public/assets/tileset.png"));
 const cols = TILESET_COLS;
