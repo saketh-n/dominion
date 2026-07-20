@@ -5,6 +5,16 @@ import { sendChat } from "../net/connection";
  * DOM chat overlay (global / local). Kept outside Phaser so it stays
  * interactive during scene transitions and is easy to drive from tests.
  */
+export type ChatUIOptions = {
+  /**
+   * When true (default historically), bare Enter focuses the chat input.
+   * Set false so the game can use Enter for the Start menu; users still
+   * click the input or Tab to it for chat.
+   */
+  captureEnter?: boolean;
+  parent?: HTMLElement;
+};
+
 export class ChatUI {
   readonly root: HTMLDivElement;
   private logEl: HTMLDivElement;
@@ -13,8 +23,16 @@ export class ChatUI {
   private globalBtn: HTMLButtonElement;
   private localBtn: HTMLButtonElement;
   private visible = true;
+  private captureEnter: boolean;
 
-  constructor(parent: HTMLElement = document.body) {
+  constructor(parentOrOpts: HTMLElement | ChatUIOptions = document.body) {
+    const opts: ChatUIOptions =
+      parentOrOpts instanceof HTMLElement
+        ? { parent: parentOrOpts }
+        : parentOrOpts ?? {};
+    const parent = opts.parent ?? document.body;
+    this.captureEnter = opts.captureEnter !== false;
+
     this.root = document.createElement("div");
     this.root.id = "chat-ui";
     Object.assign(this.root.style, {
@@ -95,7 +113,12 @@ export class ChatUI {
   }
 
   private onToggle = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && document.activeElement !== this.input && !(e.target instanceof HTMLInputElement)) {
+    if (
+      this.captureEnter &&
+      e.key === "Enter" &&
+      document.activeElement !== this.input &&
+      !(e.target instanceof HTMLInputElement)
+    ) {
       e.preventDefault();
       this.input.focus();
     }

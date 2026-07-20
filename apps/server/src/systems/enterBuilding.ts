@@ -3,11 +3,16 @@
  */
 import {
   resolveEnterTarget,
+  resolveConfirmEnterTarget,
   type EnterTarget,
   type HouseDoor,
   type InteriorKind,
+  type Dir,
   PLAZA_SPAWN_X,
   PLAZA_SPAWN_Y,
+  INTERIOR_SPAWN_TILE,
+  INTERIOR_EXIT_TILE,
+  isInteriorExitTile,
 } from "@game/shared";
 
 export interface InteriorSession {
@@ -19,6 +24,7 @@ export interface InteriorSession {
   exitY: number;
 }
 
+/** Auto-enter / step-on-door: exact door tile only. */
 export function tryEnterBuilding(
   x: number,
   y: number,
@@ -26,6 +32,20 @@ export function tryEnterBuilding(
   ownHouseId: number
 ): EnterTarget | null {
   return resolveEnterTarget(x, y, houses, ownHouseId, true);
+}
+
+/**
+ * E-key confirm: on door tile, or directly south of door facing north.
+ * Does NOT warp from east/west/north neighbors.
+ */
+export function tryConfirmEnterBuilding(
+  x: number,
+  y: number,
+  dir: Dir,
+  houses: readonly HouseDoor[],
+  ownHouseId: number
+): EnterTarget | null {
+  return resolveConfirmEnterTarget(x, y, dir, houses, ownHouseId, true);
 }
 
 export function interiorFromTarget(t: EnterTarget): InteriorSession {
@@ -38,8 +58,18 @@ export function interiorFromTarget(t: EnterTarget): InteriorSession {
   };
 }
 
-/** Fixed interior spawn (client paints room; coords are logical only). */
-export const INTERIOR_SPAWN = { x: 4, y: 6 } as const;
+/**
+ * Fixed interior spawn — just north of the south-edge exit mat.
+ * Room templates are ~12×9; mat sits at south edge, spawn one tile north of it.
+ */
+export const INTERIOR_SPAWN = INTERIOR_SPAWN_TILE;
+
+/** South-edge door-mat tile — stepping onto it exits (exact-tile rule). */
+export const INTERIOR_EXIT_MAT = INTERIOR_EXIT_TILE;
+
+export function isInteriorExitMat(x: number, y: number): boolean {
+  return isInteriorExitTile(x, y);
+}
 
 export function homeOutdoor(
   houses: readonly HouseDoor[],

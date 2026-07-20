@@ -9,6 +9,7 @@ import {
   toggleMenu,
   toggleBoolSetting,
   menusBlockWorld,
+  START_MENU_ITEMS,
 } from "@game/shared";
 
 const SETTINGS_KEY = "dominion.settings";
@@ -37,6 +38,8 @@ export function saveSettings(s: ClientSettings): void {
 export type MenuCallbacks = {
   onSettingsChange?: (s: ClientSettings) => void;
   onClose?: () => void;
+  /** Fired when Bag is opened from Start (fetch inventory). */
+  onOpenInventory?: () => void;
 };
 
 export class GameMenus {
@@ -104,7 +107,7 @@ export class GameMenus {
 
   setInventory(entries: SInventoryEntry[]): void {
     this.inventory = entries ?? [];
-    if (this.menu === "inventory") this.render();
+    if (this.menu === "inventory" || this.menu === "start") this.render();
   }
 
   /** Toggle or open a menu; returns new menu id. */
@@ -119,6 +122,11 @@ export class GameMenus {
     this.menu = target;
     this.syncVisibility();
     this.render();
+  }
+
+  /** Open a submenu from the Start list (Party / Bag / Settings). */
+  openFromStart(target: "party" | "inventory" | "settings"): void {
+    this.open(target);
   }
 
   close(): void {
@@ -136,6 +144,10 @@ export class GameMenus {
       this.panel.innerHTML = "";
       return;
     }
+    if (this.menu === "start") {
+      this.renderStartList();
+      return;
+    }
     const title =
       this.menu === "party" ? "Party" : this.menu === "inventory" ? "Bag" : "Settings";
     let body = "";
@@ -150,9 +162,47 @@ export class GameMenus {
       </div>
       ${body}
       <div style="margin-top:12px;opacity:0.55;font-size:11px">
-        Keys: P party · I bag · O settings · Esc close · H go home · E enter · X exit
+        Keys: Enter start · P party · I bag · O settings · Esc close · H go home · E enter · X exit
       </div>
     `;
+    this.bindPanelButtons();
+  }
+
+  /** Pokémon-style Start menu list. */
+  private renderStartList(): void {
+    const rows = START_MENU_ITEMS.map(
+      (it) =>
+        `<button data-start="${it.id}" style="display:block;width:100%;text-align:left;margin:6px 0;padding:10px 12px;${btnStyle()}font-size:14px">
+          ▶ ${esc(it.label)}
+        </button>`
+    ).join("");
+    this.panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-size:16px;color:#e8c070;letter-spacing:0.04em">MENU</div>
+        <button data-act="close" style="${btnStyle()}">Esc</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">${rows}</div>
+      <div style="margin-top:12px;opacity:0.55;font-size:11px">
+        Enter toggles · P / I / O jump · Esc closes
+      </div>
+    `;
+    this.bindPanelButtons();
+    this.panel.querySelectorAll("button[data-start]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = (el as HTMLElement).dataset.start;
+        if (id === "close") this.close();
+        else if (id === "party") this.open("party");
+        else if (id === "inventory") {
+          // Caller may also fetch; open bag panel immediately.
+          this.open("inventory");
+          this.cbs.onOpenInventory?.();
+        } else if (id === "settings") this.open("settings");
+      });
+    });
+  }
+
+  private bindPanelButtons(): void {
     this.panel.querySelectorAll("button[data-act]").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();

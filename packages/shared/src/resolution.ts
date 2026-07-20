@@ -16,8 +16,8 @@ export const GAME_HEIGHT = 640;
  */
 export const OVERWORLD_ZOOM = 3;
 
-/** Interior rooms use zoom 1 (fills the canvas with UI geometry). */
-export const INTERIOR_ZOOM = 1;
+/** Interior rooms use the same integer zoom as the overworld (tile density match). */
+export const INTERIOR_ZOOM = 3;
 
 /** Assert zoom is a positive integer. */
 export function assertIntegerZoom(zoom: number): number {

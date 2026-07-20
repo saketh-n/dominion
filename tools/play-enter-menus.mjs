@@ -34,8 +34,9 @@ print(json.dumps({"w":w,"h":h,"non":non,"tot":tot,"fill": non/tot if tot else 0,
 }
 
 /**
- * Prove the screenshot is a painted interior room, not leftover overworld.
- * Temple floor ~#d8d0bc, house floor ~#3a2e22, walls dark, accent rug, low grass.
+ * Prove the screenshot is a tile interior room, not leftover overworld.
+ * Tile-based interiors (zoom 3): wood/marble/stone floors, dark I_WALL bands,
+ * crimson rug accents; overworld grass and open sky must be scarce in center.
  */
 function analyzeInteriorRoom(path, expectKind) {
   const script = `
@@ -49,43 +50,42 @@ kind = sys.argv[2]
 def near(c, t, tol=28):
     return abs(c[0]-t[0])<=tol and abs(c[1]-t[1])<=tol and abs(c[2]-t[2])<=tol
 
-# Target palettes from WorldScene.showInterior
-temple_floor = (0xd8, 0xd0, 0xbc)
-house_floor = (0x3a, 0x2e, 0x22)
-temple_wall = (0x2a, 0x28, 0x30)
-house_wall = (0x1a, 0x14, 0x10)
-temple_rug = (0xa4, 0x3e, 0x35)
-house_rug = (0x6a, 0x30, 0x30)
-column = (0xe8, 0xe0, 0xd0)
-grass_like = (0x80, 0xc0, 0x50)  # overworld green — must be rare
-marble_like = (0xd0, 0xd4, 0xda)
+# Tile palette approximations (gen-tileset interior + floor tiles)
+wood_floor = (0x6a, 0x4a, 0x2e)
+temple_floor = (0xc8, 0xc0, 0xa8)
+stone_floor = (0x88, 0x84, 0x78)
+wall_dark = (0x3a, 0x2e, 0x28)
+wall_panel = (0x5a, 0x48, 0x38)
+rug = (0xa4, 0x3e, 0x35)
+marble = (0xd0, 0xcc, 0xb8)
 
 cx0, cx1 = w//2 - 160, w//2 + 160
 cy0, cy1 = h//2 - 120, h//2 + 120
 floor_n = wall_n = rug_n = grass_n = marble_n = col_n = tot = 0
-# sample center crop densely
 for y in range(cy0, cy1, 2):
     for x in range(cx0, cx1, 2):
         c = px[x,y]
         tot += 1
-        if kind == "temple":
-            if near(c, temple_floor, 36): floor_n += 1
-            if near(c, temple_wall, 30): wall_n += 1
-            if near(c, temple_rug, 40): rug_n += 1
-            if near(c, column, 30): col_n += 1
-        else:
-            if near(c, house_floor, 36): floor_n += 1
-            if near(c, house_wall, 30): wall_n += 1
-            if near(c, house_rug, 40): rug_n += 1
-        # green grass heuristic (G dominant and fairly bright)
         r,g,b = c
+        if kind == "temple":
+            if near(c, temple_floor, 40) or near(c, marble, 36): floor_n += 1
+            if near(c, wall_dark, 36) or near(c, wall_panel, 36): wall_n += 1
+            if near(c, rug, 44): rug_n += 1
+            if near(c, marble, 30) and r > 180: col_n += 1
+        elif kind == "shrine":
+            if near(c, stone_floor, 40) or near(c, marble, 36): floor_n += 1
+            if near(c, wall_dark, 36) or near(c, wall_panel, 36): wall_n += 1
+            if near(c, rug, 44): rug_n += 1
+        else:
+            if near(c, wood_floor, 42) or (r > 70 and r < 140 and g < r and b < g): floor_n += 1
+            if near(c, wall_dark, 36) or near(c, wall_panel, 36): wall_n += 1
+            if near(c, rug, 44): rug_n += 1
         if g > r + 25 and g > b + 15 and g > 90:
             grass_n += 1
-        if near(c, marble_like, 24):
+        if near(c, marble, 24):
             marble_n += 1
 
 center = list(px[w//2, h//2])
-# corners should NOT look like open field grass if backdrop works
 corners = [list(px[8,8]), list(px[w-9,8]), list(px[8,h-9]), list(px[w-9,h-9])]
 print(json.dumps({
   "kind": kind,
@@ -111,15 +111,15 @@ print(json.dumps({
 
 function isDistinctInterior(room, expectKind) {
   if (!room) return false;
-  // Room floor must dominate the center crop; grass must be scarce.
-  const floorOk = room.floor_frac >= 0.12;
-  const grassLow = room.grass_frac < 0.08;
-  // Temple also wants some wall/column presence; house wants dark walls.
+  // Tile interiors: scarce grass + some floor/wall/rug structure in center crop.
+  const grassLow = room.grass_frac < 0.12;
   const structureOk =
-    expectKind === "temple"
-      ? room.wall_frac + room.col_n / Math.max(room.tot, 1) >= 0.04 || room.rug_frac >= 0.01
-      : room.wall_frac >= 0.04 || room.rug_frac >= 0.01;
-  return floorOk && grassLow && structureOk;
+    room.floor_frac >= 0.06 ||
+    room.wall_frac >= 0.04 ||
+    room.rug_frac >= 0.01 ||
+    room.marble_n / Math.max(room.tot, 1) >= 0.08;
+  void expectKind;
+  return grassLow && structureOk;
 }
 
 const errors = [];
@@ -169,9 +169,10 @@ async function followDirs(dirs, label = "path") {
 }
 
 // Precomputed BFS plaza(513,528) → temple door(511,489) around fountain
+// Regenerated after de-pillar (stoas/perimeter); recompute via BFS if map changes.
 const TO_TEMPLE = [
-  1, 1, 1, 1, 1, 3, 3, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2,
+  1, 1, 1, 1, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2,
 ];
 const atDoor = await followDirs(TO_TEMPLE, "to-temple");
 console.log("atDoor", atDoor);

@@ -2,7 +2,15 @@
  * Pure menu / settings state helpers — unit-tested without Phaser/DOM.
  */
 
-export type MenuId = "none" | "party" | "inventory" | "settings";
+export type MenuId = "none" | "start" | "party" | "inventory" | "settings";
+
+/** Pokémon-style Start menu rows (labels shown in the list UI). */
+export const START_MENU_ITEMS = [
+  { id: "party" as const, label: "Party" },
+  { id: "inventory" as const, label: "Bag" },
+  { id: "settings" as const, label: "Settings" },
+  { id: "close" as const, label: "Exit menu" },
+] as const;
 
 export interface ClientSettings {
   /** Mute UI/SFX cue flags (client-side). */

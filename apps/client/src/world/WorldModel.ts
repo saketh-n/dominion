@@ -4,8 +4,18 @@ import { WorldFile, WorldData, decodeWorld, idx, Tile } from "@game/shared";
 export class WorldModel {
   readonly data: WorldData;
 
-  constructor(file: WorldFile) {
-    this.data = decodeWorld(file);
+  constructor(file: WorldFile | WorldData) {
+    // Accept either encoded WorldFile or already-decoded WorldData (interiors).
+    if ("layers" in file && typeof (file as WorldFile).layers?.ground === "string") {
+      this.data = decodeWorld(file as WorldFile);
+    } else {
+      this.data = file as WorldData;
+    }
+  }
+
+  /** Build a model from raw decoded layers (interior templates). */
+  static fromData(data: WorldData): WorldModel {
+    return new WorldModel(data);
   }
 
   get width() {

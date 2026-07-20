@@ -722,34 +722,40 @@ for (let t = 0; t < 4; t++) {
 // central spout (2×2 fountain rim stamps) — solid = rim tiles via stamp footprint
 placeStamp(STAMP_FOUNTAIN_2X2, 511, 518, true);
 
-// Colonnade ring around fountain — 3-tile-tall y-sorted columns
-for (const [cx2, cy2] of [
-  [504, 513],
-  [519, 513],
-  [504, 524],
-  [519, 524],
-  [506, 511],
-  [517, 511],
-  [506, 526],
-  [517, 526],
-  [502, 518],
-  [521, 518],
-  [502, 519],
-  [521, 519],
-  [511, 510],
-  [512, 510],
-  [511, 527],
-  [512, 527],
-  [503, 515],
-  [520, 515],
-  [503, 522],
-  [520, 522],
-  [508, 512],
-  [515, 512],
-  [508, 525],
-  [515, 525],
-]) {
-  stampCol3(cx2, cy2);
+// Fountain court portico corners only (structured, spacing ≥ 3) — no dense field.
+// Architrave (T_FRIEZE) connects paired columns into short porticoes.
+{
+  const porticoPairs: Array<[[number, number], [number, number]]> = [
+    [
+      [504, 513],
+      [504, 516],
+    ],
+    [
+      [519, 513],
+      [519, 516],
+    ],
+    [
+      [504, 521],
+      [504, 524],
+    ],
+    [
+      [519, 521],
+      [519, 524],
+    ],
+  ];
+  for (const [[ax, ay], [bx, by]] of porticoPairs) {
+    stampCol3(ax, ay);
+    stampCol3(bx, by);
+    // architrave/roof edge between paired columns
+    if (ax === bx) {
+      const y0 = Math.min(ay, by);
+      const y1 = Math.max(ay, by);
+      for (let y = y0 + 1; y < y1; y++) {
+        const i = idx(ax, y, W);
+        if (deco[i] === 0) deco[i] = Tile.T_FRIEZE;
+      }
+    }
+  }
 }
 
 // Sunken court elevation: ring EVERY elevation edge with 1-tile LEDGE_FACE
@@ -847,57 +853,155 @@ for (let t = 0; t < 3; t++) {
   }
 }
 
-// Processional colonnades along plaza frame + avenue edges (3-tile-tall, denser)
-for (let x = PX0 + 3; x <= PX1 - 3; x += 2) {
-  for (const py of [PY0 + 2, PY0 + 4, PY0 + 6, PY1 - 2, PY1 - 4, PY1 - 6]) {
-    if (Math.abs(x - 511) < 4) continue;
-    stampCol3(x, py);
+// ---------------------------------------------------------------------------
+// De-pillared capital massing
+// Columns ONLY in structured runs: avenue edges + porticoes, spacing ≥ 3,
+// architrave/roof edge on porticoes. Free-standing cap ≤ 8 per plaza quadrant.
+// Vertical mass recovered via two stoas + perimeter enclosure wall (not prop spam).
+// ---------------------------------------------------------------------------
+
+/** Cap free-standing columns per plaza quadrant (NW/NE/SW/SE of fountain). */
+const FREE_COL_CAP = 8;
+const freeColCount = [0, 0, 0, 0]; // NW, NE, SW, SE
+function freeColQuadrant(x: number, y: number): number {
+  const west = x < FCX;
+  const north = y < FCY;
+  if (north && west) return 0;
+  if (north && !west) return 1;
+  if (!north && west) return 2;
+  return 3;
+}
+function tryFreeCol(x: number, y: number): boolean {
+  const q = freeColQuadrant(x, y);
+  if (freeColCount[q]! >= FREE_COL_CAP) return false;
+  if (!stampCol3(x, y)) return false;
+  freeColCount[q]!++;
+  return true;
+}
+
+// Thin plaza-frame porticoes: each pair is two columns 3 apart with architrave;
+// next pair starts +6 so consecutive COLUMN_BASE tiles never closer than 3.
+// Keep rows inside the marble court (not on residential door-path latitudes).
+for (let x = PX0 + 4; x + 3 <= PX1 - 4; x += 6) {
+  if (Math.abs(x - 511) < 5 || Math.abs(x + 3 - 511) < 5) continue; // processional axis
+  for (const py of [PY0 + 4, PY1 - 4]) {
+    if (stampCol3(x, py) && stampCol3(x + 3, py)) {
+      // architrave between portico pair
+      for (let tx = x + 1; tx < x + 3; tx++) {
+        const i = idx(tx, py, W);
+        if (deco[i] === 0) deco[i] = Tile.T_FRIEZE;
+      }
+    }
   }
 }
-for (let y = PY0 + 5; y <= PY1 - 5; y += 2) {
-  for (const px of [PX0 + 2, PX0 + 4, PX0 + 6, PX1 - 2, PX1 - 4, PX1 - 6]) {
-    if (Math.abs(y - 518) < 4) continue;
+// Thin E/W plaza-frame porticoes (pair span 3, stride 6 → min gap ≥ 3)
+for (let y = PY0 + 6; y + 3 <= PY1 - 6; y += 6) {
+  if (Math.abs(y - 518) < 5 || Math.abs(y + 3 - 518) < 5) continue;
+  for (const px of [PX0 + 3, PX1 - 3]) {
+    if (stampCol3(px, y) && stampCol3(px, y + 3)) {
+      for (let ty = y + 1; ty < y + 3; ty++) {
+        const i = idx(px, ty, W);
+        if (deco[i] === 0) deco[i] = Tile.T_FRIEZE;
+      }
+    }
+  }
+}
+
+// Avenue-edge columns (N-S processional) — spacing ≥ 3, not dense every-2
+for (let y = PY0 + 12; y <= PY1 - 12; y += 4) {
+  if (Math.abs(y - FCY) < 10) continue;
+  for (const px of [506, 517]) {
     stampCol3(px, y);
   }
 }
-// Extra inner colonnade ring for vertical massing (~40%+ frame read)
-for (let x = PX0 + 8; x <= PX1 - 8; x += 3) {
-  for (const py of [PY0 + 8, PY1 - 8]) {
-    if (Math.abs(x - 511) < 6) continue;
-    stampCol3(x, py);
+
+// Two stoas flanking the temple approach (long colonnaded halls):
+// back wall + roof + open colonnade front. Contiguous ≥ 3×2 footprint.
+function stampStoa(x0: number, y0: number, x1: number, y1: number, frontEast: boolean): void {
+  // Roof / architrave band on north row
+  for (let x = x0; x <= x1; x++) {
+    const i = idx(x, y0, W);
+    deco[i] = Tile.H_ROOF_N;
+    terrain[i] = TerrainKind.MARBLE;
+  }
+  // Back wall (west if frontEast, else east) + end walls
+  const backX = frontEast ? x0 : x1;
+  const frontX = frontEast ? x1 : x0;
+  for (let y = y0 + 1; y <= y1; y++) {
+    deco[idx(backX, y, W)] = Tile.H_WALL;
+    terrain[idx(backX, y, W)] = TerrainKind.MARBLE;
+    // end caps
+    deco[idx(x0, y, W)] = deco[idx(x0, y, W)] || Tile.H_WALL_COL;
+    deco[idx(x1, y, W)] = deco[idx(x1, y, W)] || Tile.H_WALL_COL;
+    terrain[idx(x0, y, W)] = TerrainKind.MARBLE;
+    terrain[idx(x1, y, W)] = TerrainKind.MARBLE;
+  }
+  // Open colonnade on front face (columns every 3 tiles) + frieze architrave
+  for (let y = y0 + 1; y <= y1; y += 3) {
+    stampCol3(frontX, y);
+  }
+  for (let y = y0 + 1; y <= y1; y++) {
+    const i = idx(frontX, y, W);
+    if (deco[i] === 0) deco[i] = Tile.T_FRIEZE;
+    terrain[i] = TerrainKind.MARBLE;
+  }
+  // Interior floor under stoa
+  for (let y = y0 + 1; y <= y1; y++) {
+    for (let x = x0 + 1; x <= x1 - 1; x++) {
+      const i = idx(x, y, W);
+      terrain[i] = TerrainKind.MARBLE;
+      if (deco[i] === 0) ground[i] = Tile.MARBLE_FLOOR;
+    }
   }
 }
-for (let y = PY0 + 10; y <= PY1 - 10; y += 3) {
-  for (const px of [PX0 + 8, PX1 - 8]) {
-    if (Math.abs(y - 518) < 6) continue;
-    stampCol3(px, y);
+// West stoa (front opens east toward approach) and east stoa (front opens west)
+stampStoa(498, PY0 + 8, 503, PY0 + 20, true);
+stampStoa(520, PY0 + 8, 525, PY0 + 20, false);
+
+// Perimeter enclosure wall around plaza (contiguous structure mass, gate gaps)
+for (let x = PX0; x <= PX1; x++) {
+  for (const py of [PY0, PY1]) {
+    if (x >= 509 && x <= 514) continue; // N/S processional gap
+    const i = idx(x, py, W);
+    if (deco[i] !== 0 && deco[i] !== Tile.T_FRIEZE) continue;
+    deco[i] = py === PY0 ? Tile.W_TOP : Tile.W_BODY;
+    terrain[i] = TerrainKind.MARBLE;
   }
 }
-// Dense 3-tile colonnade filling temple approach frame (structure-only ≥40%)
-// Rows just south of temple steps through mid-approach; every other x
-for (let y = PY0 + 11; y <= PY0 + 20; y += 2) {
-  for (let x = 500; x <= 522; x += 2) {
-    if (x >= 508 && x <= 515) continue; // keep N-S avenue open
-    stampCol3(x, y);
+for (let y = PY0; y <= PY1; y++) {
+  for (const px of [PX0, PX1]) {
+    if (y >= 516 && y <= 521) continue; // E/W avenue gap
+    const i = idx(px, y, W);
+    if (deco[i] !== 0 && deco[i] !== Tile.T_FRIEZE) continue;
+    deco[i] = Tile.W_BODY;
+    terrain[i] = TerrainKind.MARBLE;
   }
 }
-// Side wall runs (engaged facade mass) flanking temple approach
+
+// Side wall runs (engaged facade) flanking temple approach — real structure mass
 for (let y = PY0 + 3; y <= PY0 + 14; y++) {
   for (const px of [499, 500, 523, 524]) {
     const i = idx(px, y, W);
-    if (deco[i] !== 0) continue;
+    if (deco[i] !== 0 && deco[i] !== Tile.H_WALL && deco[i] !== Tile.H_WALL_COL) continue;
     if (y === PY0 + 3) deco[i] = Tile.T_FRIEZE;
     else if (y === PY0 + 4) deco[i] = Tile.T_COL_TOP;
     else deco[i] = Tile.H_WALL_COL;
     terrain[i] = TerrainKind.MARBLE;
   }
 }
-// Double colonnade along N-S avenue edges — full 3-tile columns
-for (let y = PY0 + 10; y <= PY1 - 10; y += 2) {
-  for (const px of [506, 517]) {
-    if (Math.abs(y - FCY) < 9) continue;
-    stampCol3(px, y);
-  }
+
+// Sparse free-standing accent columns (budgeted ≤ 8 / quadrant) — NOT a field
+for (const [cx, cy] of [
+  [502, 512],
+  [521, 512],
+  [502, 525],
+  [521, 525],
+  [508, 508],
+  [515, 508],
+  [508, 531],
+  [515, 531],
+]) {
+  tryFreeCol(cx, cy);
 }
 // ---------------------------------------------------------------------------
 // Placement grammar: anchor rules + symmetry + per-zone density budget
@@ -1031,8 +1135,8 @@ for (let y = PY0 + 8; y <= PY1 - 8; y += 3) {
   }
 }
 
-// processional pillar avenue from south gate into plaza (mirrored, budgeted)
-for (let y = PY1 + 1; y <= Math.min(PY1 + 18, 560); y += 2) {
+// processional avenue edge columns from south gate into plaza (spacing ≥ 3)
+for (let y = PY1 + 2; y <= Math.min(PY1 + 18, 560); y += 4) {
   for (const px of [506, 517]) {
     if (deco[idx(px, y, W)] !== 0) continue;
     const k = terrain[idx(px, y, W)];
@@ -1043,7 +1147,7 @@ for (let y = PY1 + 1; y <= Math.min(PY1 + 18, 560); y += 2) {
       k !== TerrainKind.MARBLE
     )
       continue;
-    placeStamp(STAMP_PILLAR, px, y, false);
+    stampCol3(px, y);
   }
 }
 
@@ -1078,10 +1182,25 @@ function stampHouse(hx: number, hy: number, id: number) {
   }
   const doorX = hx + 2;
   const doorY = hy + 3;
-  // path from the door to the street below
-  for (let py = doorY + 1; py <= hy + 5; py++) {
-    terrain[idx(doorX, py, W)] = TerrainKind.DIRT;
-    deco[idx(doorX, py, W)] = 0;
+  // path from the door to the street below — clear deco/overhead/collision so
+  // earlier plaza-frame props never leave spawn tiles solid.
+  for (let py = doorY; py <= hy + 5; py++) {
+    const i = idx(doorX, py, W);
+    if (py > doorY) {
+      terrain[i] = TerrainKind.DIRT;
+      deco[i] = 0;
+    }
+    overhead[i] = 0;
+    collision[i] = 0;
+    // also clear flanks so 3-tile columns don't block the stoop
+    for (const fx of [doorX - 1, doorX + 1]) {
+      const fi = idx(fx, py, W);
+      if (deco[fi] === Tile.COLUMN_BASE || deco[fi] === Tile.PILLAR || deco[fi] === Tile.T_FRIEZE) {
+        deco[fi] = 0;
+        overhead[fi] = 0;
+        collision[fi] = 0;
+      }
+    }
   }
   houses.push({ id, doorX, doorY, spawnX: doorX, spawnY: doorY + 1 });
 }

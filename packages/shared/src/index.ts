@@ -8,6 +8,7 @@ export * from "./prop-stamps.js";
 export * from "./placement.js";
 export * from "./world.js";
 export * from "./buildings.js";
+export * from "./interiors.js";
 export * from "./protocol.js";
 export * from "./state.js";
 export * from "./creatures.js";

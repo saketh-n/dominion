@@ -91,6 +91,13 @@ export class WindowedTilemap {
     for (const p of this.tallProps.values()) p.sprite.setVisible(v);
   }
 
+  /** Tear down layers + tall props (used when swapping overworld ↔ interior). */
+  destroy(): void {
+    for (const p of this.tallProps.values()) p.sprite.destroy();
+    this.tallProps.clear();
+    this.map.destroy();
+  }
+
   /** Call every frame with the follow target's tile coordinates. */
   update(centerTileX: number, centerTileY: number): void {
     const next = desiredOrigin(centerTileX, centerTileY, VIEW_W, VIEW_H);

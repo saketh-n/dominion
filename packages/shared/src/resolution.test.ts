@@ -39,7 +39,7 @@ function isInt(n: number): boolean {
 
 // --- constants ---
 ok("OVERWORLD_ZOOM is integer 3", OVERWORLD_ZOOM === 3 && Number.isInteger(OVERWORLD_ZOOM));
-ok("INTERIOR_ZOOM is 1", INTERIOR_ZOOM === 1);
+ok("INTERIOR_ZOOM is 3 (same density as overworld)", INTERIOR_ZOOM === 3);
 ok("assertIntegerZoom(3) returns 3", assertIntegerZoom(3) === 3);
 {
   let threw = false;
@@ -209,9 +209,10 @@ for (const dpr of [1, 1.25, 1.5, 2, 3]) {
   );
   ok("WorldScene sets roundPixels", /setRoundPixels\s*\(\s*true\s*\)/.test(world));
   ok(
-    "interior setZoom INTERIOR_ZOOM or 1",
-    /setZoom\s*\(\s*1\s*\)/.test(world) || /setZoom\s*\(\s*INTERIOR_ZOOM\s*\)/.test(world)
+    "interior setZoom INTERIOR_ZOOM (same integer zoom as overworld)",
+    /setZoom\s*\(\s*INTERIOR_ZOOM\s*\)/.test(world)
   );
+  ok("INTERIOR_ZOOM constant is 3", INTERIOR_ZOOM === 3);
 }
 
 console.log(lines.join("\n"));

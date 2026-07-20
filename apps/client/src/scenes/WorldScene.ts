@@ -14,11 +14,15 @@ import {
   SChatMsg,
   PlayerState,
   WorldState,
-  resolveEnterTarget,
+  resolveNearEnterTarget,
   enterPrompt,
   OVERWORLD_ZOOM,
   INTERIOR_ZOOM,
   type ClientSettings,
+  type InteriorKind,
+  buildInteriorWorld,
+  isInteriorExitTile,
+  INTERIOR_SPAWN_TILE,
 } from "@game/shared";
 import { WorldModel } from "../world/WorldModel";
 import { WindowedTilemap } from "../world/WindowedTilemap";
@@ -90,22 +94,22 @@ export class WorldScene extends Phaser.Scene {
   private chat!: ChatUI;
   private partyHud!: PartyHUD;
   private menus!: GameMenus;
-  private interiorGfx: Phaser.GameObjects.GameObject[] = [];
   private statusText!: Phaser.GameObjects.Text;
   private promptText!: Phaser.GameObjects.Text;
+  private hintBar!: Phaser.GameObjects.Text;
   private unbind: (() => void) | null = null;
   private inBattle = false;
-  private interiorKind: "house" | "temple" | "shrine" = "house";
+  private interiorKind: InteriorKind = "house";
   private interiorName = "Interior";
   private settings: ClientSettings = loadSettings();
   /** Overworld zoom restored when leaving an interior (always integer). */
   private overworldZoom = OVERWORLD_ZOOM;
-  /**
-   * Fixed world origin for interior rooms (far from the 1024 map so leftover
-   * tiles never appear). Camera centers here with zoom 1 while inside.
-   */
-  private static readonly INTERIOR_ORIGIN_X = -8000;
-  private static readonly INTERIOR_ORIGIN_Y = -8000;
+  /** Saved overworld model while interior tilemap is active. */
+  private overworldModel: WorldModel | null = null;
+  /** Interior WorldModel (tile template) while inside a building. */
+  private interiorModel: WorldModel | null = null;
+  private interiorLabel: Phaser.GameObjects.Text | null = null;
+  private keyEnter!: Phaser.Input.Keyboard.Key;
 
   constructor() {
     super("world");
@@ -162,11 +166,13 @@ export class WorldScene extends Phaser.Scene {
     this.keyO = this.input.keyboard!.addKey("O");
     this.keyH = this.input.keyboard!.addKey("H");
     this.keyEsc = this.input.keyboard!.addKey("ESC");
+    this.keyEnter = this.input.keyboard!.addKey("ENTER");
 
-    this.chat = new ChatUI();
+    this.chat = new ChatUI({ captureEnter: false });
     this.partyHud = new PartyHUD();
     this.menus = new GameMenus(document.body, {
       onSettingsChange: (s) => this.applySettings(s),
+      onOpenInventory: () => sendGetInventory(),
     });
     const cachedParty = getLastParty();
     if (cachedParty.length) {
@@ -198,10 +204,25 @@ export class WorldScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(1_000_001)
       .setVisible(false);
+    this.hintBar = this.add
+      .text(480, 632, "↑↓←→/WASD move  ·  E enter  ·  Enter menu  ·  X exit  ·  H home", {
+        fontFamily: "monospace",
+        fontSize: "11px",
+        color: "#d8c8a0",
+        backgroundColor: "#000000cc",
+        padding: { x: 10, y: 4 },
+      })
+      .setOrigin(0.5, 1)
+      .setScrollFactor(0)
+      .setDepth(1_000_002);
 
     this.tilemap.update(this.tileX, this.tileY);
     this.bindNet(room);
     this.hookRemotePlayers(room);
+    this.chat.system(
+      "Controls: WASD/Arrows move · E enter door · X exit interior · Enter Start menu · P party · I bag · O settings · H go home · Esc close · click chat to type"
+    );
+    this.installMenuHotkeys();
 
     // If schema arrived late, re-sync once
     this.time.delayedCall(100, () => {
@@ -266,7 +287,54 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private menuHotkeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  /**
+   * DOM-level menu hotkeys so Party/Bag/Start work even while WorldScene is
+   * paused under the battle overlay (Phaser JustDown does not fire then).
+   */
+  private installMenuHotkeys(): void {
+    this.menuHotkeyHandler = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const k = e.key;
+      if (k === "Escape") {
+        if (this.menus.openMenu !== "none") {
+          e.preventDefault();
+          this.menus.close();
+        }
+        return;
+      }
+      if (k === "Enter") {
+        e.preventDefault();
+        if (this.menus.openMenu === "start") this.menus.close();
+        else this.menus.open("start");
+        return;
+      }
+      if (k === "p" || k === "P") {
+        e.preventDefault();
+        this.menus.toggle("party");
+        return;
+      }
+      if (k === "i" || k === "I") {
+        e.preventDefault();
+        sendGetInventory();
+        this.menus.toggle("inventory");
+        return;
+      }
+      if (k === "o" || k === "O") {
+        e.preventDefault();
+        this.menus.toggle("settings");
+      }
+    };
+    window.addEventListener("keydown", this.menuHotkeyHandler);
+  }
+
   private teardown() {
+    if (this.menuHotkeyHandler) {
+      window.removeEventListener("keydown", this.menuHotkeyHandler);
+      this.menuHotkeyHandler = null;
+    }
     this.unbind?.();
     this.chat?.destroy();
     this.partyHud?.destroy();
@@ -482,7 +550,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private tryStep(d: Dir) {
-    if (this.inBattle || this.place === "interior") return;
+    if (this.inBattle) return;
     this.dir = d;
     const nx = this.tileX + DIR_DX[d];
     const ny = this.tileY + DIR_DY[d];
@@ -490,8 +558,6 @@ export class WorldScene extends Phaser.Scene {
 
     // Local collision prediction (server is authoritative)
     if (this.world.isBlocked(nx, ny)) {
-      // still tell server so it can reject consistently / face dir
-      // but skip animation
       return;
     }
 
@@ -514,6 +580,13 @@ export class WorldScene extends Phaser.Scene {
         this.moving = false;
         this.player.setDepth(10 + this.tileY * 0.001);
         this.syncNameTag();
+        // Client-side exit mat: exact-tile step exits (server also warps).
+        if (this.place === "interior" && isInteriorExitTile(this.tileX, this.tileY)) {
+          this.player.stop();
+          this.player.setFrame(this.skin * 12 + this.dir * 3);
+          sendExitHouse();
+          return;
+        }
         if (this.inBattle) {
           this.player.stop();
           this.player.setFrame(this.skin * 12 + this.dir * 3);
@@ -556,11 +629,10 @@ export class WorldScene extends Phaser.Scene {
     if (msg.place === "interior") {
       this.interiorKind = msg.interiorKind ?? "house";
       this.interiorName = msg.interiorName ?? "Interior";
-      // Screen-space room overlay — must run AFTER tile coords are set, and must
-      // NOT be followed by syncPlayerPixel (that would yank the sprite to tile 4,6
-      // world space while scrollFactor is 0, leaving the room off-camera).
+      this.tileX = msg.x ?? INTERIOR_SPAWN_TILE.x;
+      this.tileY = msg.y ?? INTERIOR_SPAWN_TILE.y;
       this.showInterior();
-      this.chat.system(`Entered ${this.interiorName}. Press X to exit.`);
+      this.chat.system(`Entered ${this.interiorName}. Step on the mat (or press X) to exit.`);
     } else {
       this.hideInterior();
       this.syncPlayerPixel();
@@ -582,91 +654,59 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * Paint a distinct interior room at a fixed world origin and park the camera
-   * there (zoom 1). Never uses overworld tile pixels or scrollFactor(0)+zoom
-   * hacks — those left the room off-screen / in a corner while grass showed.
+   * Swap the WindowedTilemap onto a ~12×9 interior tile template at the same
+   * integer zoom (3) as the overworld — collision bake + y-sort included.
+   * No rectangle painting; exit mat is a south-edge RUG tile.
    */
   private showInterior() {
     this.hideInterior();
-    this.tilemap.setVisible(false);
 
     const cam = this.cameras.main;
     this.overworldZoom = OVERWORLD_ZOOM;
-    cam.stopFollow();
     cam.setZoom(INTERIOR_ZOOM);
     refitDisplay(INTERIOR_ZOOM);
 
-    const ox = WorldScene.INTERIOR_ORIGIN_X;
-    const oy = WorldScene.INTERIOR_ORIGIN_Y;
-    // Room sized to fill most of the 960×640 canvas at zoom 1.
-    const roomW = 720;
-    const roomH = 480;
-    const kind = this.interiorKind;
-    const floorColor = kind === "temple" ? 0xd8d0bc : kind === "shrine" ? 0xc8c0a8 : 0x3a2e22;
-    const wallColor = kind === "house" ? 0x1a1410 : 0x2a2830;
-    const accent = kind === "temple" ? 0xa43e35 : kind === "shrine" ? 0x2f6fb8 : 0x6a3030;
+    // Keep overworld model; point tilemap at interior WorldData.
+    if (!this.overworldModel) this.overworldModel = this.world;
+    this.interiorModel = WorldModel.fromData(buildInteriorWorld(this.interiorKind));
+    this.world = this.interiorModel;
+    // Rebuild tilemap layers against the interior model (same tileset texture).
+    this.tilemap.destroy?.();
+    this.tilemap = new WindowedTilemap(this, this.world);
+    this.tilemap.setVisible(true);
+    this.tilemap.update(this.tileX, this.tileY);
 
-    const mk = (x: number, y: number, w: number, h: number, color: number, depth: number) =>
-      this.add.rectangle(x, y, w, h, color, 1).setDepth(depth);
-
-    // Large void so nothing outside the room is visible
-    const voidBg = mk(ox, oy, cam.width * 2, cam.height * 2, 0x0c0a10, 4.5);
-    const walls = mk(ox, oy, roomW, roomH, wallColor, 5);
-    const floor = mk(ox, oy + 16, roomW * 0.78, roomH * 0.62, floorColor, 5.1);
-    floor.setStrokeStyle(3, 0x6a5040);
-    const rug = mk(ox, oy + 40, roomW * 0.32, roomH * 0.22, accent, 5.2);
-
-    const extras: Phaser.GameObjects.GameObject[] = [];
-    if (kind !== "house") {
-      for (const dx of [-roomW * 0.28, roomW * 0.28]) {
-        extras.push(mk(ox + dx, oy - 10, 36, roomH * 0.55, 0xe8e0d0, 5.15));
-      }
-    } else {
-      extras.push(mk(ox - roomW * 0.22, oy - 20, 70, 90, 0x4a6080, 5.2));
-    }
-
-    const label = this.add
-      .text(ox, oy - roomH * 0.42, this.interiorName, {
-        fontFamily: "monospace",
-        fontSize: "18px",
-        color: "#e8dcc0",
-        backgroundColor: "#000000cc",
-        padding: { x: 10, y: 5 },
-      })
-      .setOrigin(0.5)
-      .setDepth(5.4);
-    const hint = this.add
-      .text(ox, oy + roomH * 0.42, "[X] Exit building", {
-        fontFamily: "monospace",
-        fontSize: "14px",
-        color: "#c8a060",
-        backgroundColor: "#000000cc",
-        padding: { x: 8, y: 4 },
-      })
-      .setOrigin(0.5)
-      .setDepth(5.4);
-
-    this.interiorGfx = [voidBg, walls, floor, rug, label, hint, ...extras];
-
-    // Avatar stands in the room — world coords at interior origin, NOT tile 4,6.
     this.player.setScrollFactor(1);
-    this.player.setDepth(6);
-    this.player.x = ox;
-    this.player.y = oy + 50;
-    this.nameTag.setScrollFactor(1);
-    this.nameTag.setDepth(6.1);
-    this.syncNameTag();
+    this.syncPlayerPixel();
+    cam.startFollow(this.player, true, 1, 1);
+    cam.setDeadzone(0, 0);
+    cam.centerOn(this.player.x, this.player.y);
 
-    cam.centerOn(ox, oy);
+    this.interiorLabel?.destroy();
+    this.interiorLabel = this.add
+      .text(8, 28, `${this.interiorName}  ·  mat/X exit`, {
+        fontFamily: "monospace",
+        fontSize: "12px",
+        color: "#e8dcc0",
+        backgroundColor: "#000000aa",
+        padding: { x: 6, y: 3 },
+      })
+      .setScrollFactor(0)
+      .setDepth(1_000_003);
   }
 
   private hideInterior() {
-    for (const g of this.interiorGfx) g.destroy();
-    this.interiorGfx = [];
-    this.tilemap?.setVisible(true);
-    if (this.player) {
-      this.player.setScrollFactor(1);
-      this.nameTag.setScrollFactor(1);
+    this.interiorLabel?.destroy();
+    this.interiorLabel = null;
+    this.interiorModel = null;
+    if (this.overworldModel) {
+      this.world = this.overworldModel;
+      this.overworldModel = null;
+      this.tilemap.destroy?.();
+      this.tilemap = new WindowedTilemap(this, this.world);
+      this.tilemap.setVisible(true);
+    } else {
+      this.tilemap?.setVisible(true);
     }
   }
 
@@ -733,7 +773,11 @@ export class WorldScene extends Phaser.Scene {
     w.__dominionGoHome = () => sendGoHome();
     w.__dominionMenu = (id: string) => {
       if (id === "none" || id === "close") this.menus.close();
-      else if (id === "party" || id === "inventory" || id === "settings") this.menus.open(id);
+      else if (id === "start") this.menus.open("start");
+      else if (id === "party" || id === "inventory" || id === "settings") {
+        if (id === "inventory") sendGetInventory();
+        this.menus.open(id);
+      }
       // Keep debug probe in sync even when world update is paused by menus.
       if (w.__dominionPos && typeof w.__dominionPos === "object") {
         (w.__dominionPos as { menu: string }).menu = this.menus.openMenu;
@@ -747,10 +791,12 @@ export class WorldScene extends Phaser.Scene {
       this.promptText.setVisible(false);
       return;
     }
-    const target = resolveEnterTarget(
+    // Prompt uses nearDoor adjacency; warp uses exact door only (server).
+    const houses = this.overworldModel?.data.houses ?? this.world.data.houses;
+    const target = resolveNearEnterTarget(
       this.tileX,
       this.tileY,
-      this.world.data.houses,
+      houses,
       this.houseId,
       true
     );
@@ -764,19 +810,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   update(_t: number, dt: number) {
+    // Menu keys: installMenuHotkeys (DOM) covers battle pause; Phaser keys unused for menus.
     if (this.inBattle) return;
-
-    // Menus (work in world + interior; Esc closes)
-    if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
-      if (this.menus.openMenu !== "none") this.menus.close();
-    } else if (Phaser.Input.Keyboard.JustDown(this.keyP)) {
-      this.menus.toggle("party");
-    } else if (Phaser.Input.Keyboard.JustDown(this.keyI)) {
-      sendGetInventory();
-      this.menus.toggle("inventory");
-    } else if (Phaser.Input.Keyboard.JustDown(this.keyO)) {
-      this.menus.toggle("settings");
-    }
 
     if (this.menus.blocksWorld()) {
       this.promptText?.setVisible(false);
@@ -794,13 +829,13 @@ export class WorldScene extends Phaser.Scene {
       sendGoHome();
     }
 
-    if (this.place === "world" && !this.moving) {
+    if (!this.moving) {
       const held = this.heldDir();
       if (held !== null) this.tryStep(held);
     }
     // Stream tiles from the player's *pixel* center every frame so the window
     // tracks mid-step during the walk tween (continuous scroll, not edge-pop).
-    if (this.place === "world") {
+    {
       const cx = Math.floor(this.player.x / TILE_SIZE);
       const cy = Math.floor((this.player.y - 1) / TILE_SIZE);
       this.tilemap.update(cx, cy);
@@ -826,6 +861,6 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.layoutNameTags();
-    if (this.place === "world") this.refreshStatus();
+    this.refreshStatus();
   }
 }

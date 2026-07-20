@@ -22,12 +22,15 @@ import { tryStep } from "../systems/movement.js";
 import { chatRecipients, buildChatPayload } from "../systems/chat.js";
 import {
   tryEnterBuilding,
+  tryConfirmEnterBuilding,
   interiorFromTarget,
   INTERIOR_SPAWN,
+  isInteriorExitMat,
   homeOutdoor,
   type InteriorSession,
 } from "../systems/enterBuilding.js";
 import { loadOrGrantInventory } from "../systems/inventory.js";
+import type { EnterTarget } from "@game/shared";
 
 const STEP_MS = 1000 / WALK_SPEED;
 
@@ -113,7 +116,7 @@ export class WorldRoom extends Room<WorldState> {
   private handleMove(client: Client, msg: MoveMsg) {
     const p = this.state.players.get(client.sessionId);
     const s = this.sessions.get(client.sessionId);
-    if (!p || !s || p.place !== "world" || p.inBattle) return;
+    if (!p || !s || p.inBattle) return;
     const dir = msg?.dir;
     if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) return;
 
@@ -123,6 +126,28 @@ export class WorldRoom extends Room<WorldState> {
       client.send(SMSG.MOVE_REJECT, { seq: msg.seq, x: p.x, y: p.y });
       return;
     }
+
+    // Interior movement: walk room tiles; stepping on exit mat warps out.
+    if (p.place === "interior") {
+      p.dir = dir;
+      const nx = p.x + (dir === 2 ? -1 : dir === 3 ? 1 : 0);
+      const ny = p.y + (dir === 0 ? 1 : dir === 1 ? -1 : 0);
+      // Soft bounds matching interior templates (~12×9); solid walls handled client-side.
+      if (nx < 1 || ny < 1 || nx > 10 || ny > 8) {
+        client.send(SMSG.MOVE_REJECT, { seq: msg.seq, x: p.x, y: p.y });
+        return;
+      }
+      s.lastMoveAt = now;
+      p.x = nx;
+      p.y = ny;
+      client.send(SMSG.MOVE_ACK, { seq: msg.seq, x: p.x, y: p.y });
+      if (isInteriorExitMat(nx, ny)) {
+        this.warpExit(client, p, s);
+      }
+      return;
+    }
+
+    if (p.place !== "world") return;
 
     const step = tryStep(p.x, p.y, dir);
     p.dir = dir;
@@ -135,7 +160,7 @@ export class WorldRoom extends Room<WorldState> {
     p.y = step.y;
     client.send(SMSG.MOVE_ACK, { seq: msg.seq, x: p.x, y: p.y });
 
-    // Auto-enter when stepping onto an enterable door (own house, public, visitor)
+    // Auto-enter ONLY when the step lands exactly on the door tile (never adjacency).
     const entered = this.tryWarpEnter(client, p, step.x, step.y);
     if (entered) return;
 
@@ -150,10 +175,8 @@ export class WorldRoom extends Room<WorldState> {
     return getWorld().houses;
   }
 
-  /** Enter building at (x,y) if a door is on/adjacent. Returns true if warped. */
-  private tryWarpEnter(client: Client, p: PlayerState, x: number, y: number): boolean {
-    const target = tryEnterBuilding(x, y, this.housesList(), p.houseId);
-    if (!target) return false;
+  /** Apply an enter warp from a resolved target. */
+  private applyEnterWarp(client: Client, p: PlayerState, target: EnterTarget): boolean {
     const s = this.sessions.get(client.sessionId);
     if (!s) return false;
     const interior = interiorFromTarget(target);
@@ -172,20 +195,18 @@ export class WorldRoom extends Room<WorldState> {
     return true;
   }
 
-  private handleEnterHouse(client: Client) {
-    const p = this.state.players.get(client.sessionId);
-    if (!p || p.place !== "world" || p.inBattle) return;
-    // Exact door or adjacent (Pokemon-like confirm)
-    if (this.tryWarpEnter(client, p, p.x, p.y)) return;
-    client.send(SMSG.TOAST, {
-      message: "Stand on a doorway (house, temple, or shrine) and press E — or H to go home.",
-    });
+  /** Auto-enter: exact door tile only (x === doorX && y === doorY). */
+  private tryWarpEnter(client: Client, p: PlayerState, x: number, y: number): boolean {
+    const target = tryEnterBuilding(x, y, this.housesList(), p.houseId);
+    if (!target) return false;
+    return this.applyEnterWarp(client, p, target);
   }
 
-  private handleExitHouse(client: Client) {
-    const p = this.state.players.get(client.sessionId);
-    const s = this.sessions.get(client.sessionId);
-    if (!p || !s || p.place !== "interior") return;
+  private warpExit(
+    client: Client,
+    p: PlayerState,
+    s: SessionData
+  ): void {
     const interior = s.interior;
     p.place = "world";
     if (interior) {
@@ -199,6 +220,24 @@ export class WorldRoom extends Room<WorldState> {
     p.dir = 0;
     s.interior = null;
     client.send(SMSG.WARP, { place: "world", x: p.x, y: p.y });
+  }
+
+  private handleEnterHouse(client: Client) {
+    const p = this.state.players.get(client.sessionId);
+    if (!p || p.place !== "world" || p.inBattle) return;
+    // E confirm: on door tile OR directly south facing north — never side/north neighbors alone.
+    const target = tryConfirmEnterBuilding(p.x, p.y, p.dir as 0 | 1 | 2 | 3, this.housesList(), p.houseId);
+    if (target && this.applyEnterWarp(client, p, target)) return;
+    client.send(SMSG.TOAST, {
+      message: "Stand on a doorway (or face it from the south) and press E — or H to go home.",
+    });
+  }
+
+  private handleExitHouse(client: Client) {
+    const p = this.state.players.get(client.sessionId);
+    const s = this.sessions.get(client.sessionId);
+    if (!p || !s || p.place !== "interior") return;
+    this.warpExit(client, p, s);
   }
 
   private handleGetInventory(client: Client) {

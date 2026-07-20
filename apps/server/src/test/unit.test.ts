@@ -26,7 +26,11 @@ import {
   PLAZA_SPAWN_Y,
   PUBLIC_BUILDINGS,
   resolveEnterTarget,
+  resolveNearEnterTarget,
+  resolveConfirmEnterTarget,
   nearDoor,
+  onDoorTile,
+  canConfirmEnter,
   enterPrompt,
   STARTER_INVENTORY,
   describeStack,
@@ -34,6 +38,16 @@ import {
   toggleBoolSetting,
   menusBlockWorld,
   DEFAULT_SETTINGS,
+  START_MENU_ITEMS,
+  buildInteriorWorld,
+  getInteriorLayers,
+  isInteriorExitTile,
+  INTERIOR_SPAWN_TILE,
+  INTERIOR_EXIT_TILE,
+  Tile,
+  SOLID_TILES,
+  INTERIOR_ZOOM,
+  OVERWORLD_ZOOM,
 } from "@game/shared";
 import { openDb, closeDb, getDb } from "../db/index.js";
 import { HouseRegistry } from "../systems/houses.js";
@@ -43,8 +57,11 @@ import { chatRecipients, buildChatPayload } from "../systems/chat.js";
 import { BattleManager } from "../systems/battle.js";
 import {
   tryEnterBuilding,
+  tryConfirmEnterBuilding,
   interiorFromTarget,
   INTERIOR_SPAWN,
+  INTERIOR_EXIT_MAT,
+  isInteriorExitMat,
   homeOutdoor,
 } from "../systems/enterBuilding.js";
 import { loadOrGrantInventory } from "../systems/inventory.js";
@@ -540,8 +557,17 @@ const tests = [
       assert.ok(t, `resolve at ${b.id} door`);
       assert.equal(t!.buildingId, b.id);
       assert.equal(t!.kind, b.kind);
-      assert.ok(nearDoor(b.doorX, b.doorY + 1, b.doorX, b.doorY), "adjacent south counts");
-      const prompt = enterPrompt(t);
+      assert.ok(nearDoor(b.doorX, b.doorY + 1, b.doorX, b.doorY), "adjacent south for prompt");
+      assert.ok(onDoorTile(b.doorX, b.doorY, b.doorX, b.doorY));
+      // nearDoor prompt still works from south; warp resolve does not
+      const near = resolveNearEnterTarget(b.doorX, b.doorY + 1, w.houses, -1, true);
+      assert.ok(near, "nearDoor prompt from south");
+      assert.equal(
+        resolveEnterTarget(b.doorX, b.doorY + 1, w.houses, -1, true),
+        null,
+        "adjacency must not auto-enter"
+      );
+      const prompt = enterPrompt(near);
       assert.match(prompt ?? "", /Enter/);
     }
     // Grand temple near plaza so first-session enter is reachable
@@ -549,6 +575,68 @@ const tests = [
     const dist =
       Math.abs(temple.doorX - PLAZA_SPAWN_X) + Math.abs(temple.doorY - PLAZA_SPAWN_Y);
     assert.ok(dist < 50, `temple should be near plaza (dist=${dist})`);
+  }),
+
+  test("door entry: stepping onto each of 4 neighbors does NOT enter; door tile does", () => {
+    const w = getWorld();
+    const temple = PUBLIC_BUILDINGS.find((b) => b.id === "grand-temple")!;
+    const { doorX: dx, doorY: dy } = temple;
+    const neighbors: Array<[number, number, string]> = [
+      [dx, dy - 1, "north"],
+      [dx, dy + 1, "south"],
+      [dx - 1, dy, "west"],
+      [dx + 1, dy, "east"],
+    ];
+    for (const [x, y, label] of neighbors) {
+      assert.equal(
+        resolveEnterTarget(x, y, w.houses, -1, true),
+        null,
+        `neighbor ${label} must not auto-enter`
+      );
+      assert.equal(
+        tryEnterBuilding(x, y, w.houses, -1),
+        null,
+        `tryEnter neighbor ${label} must not enter`
+      );
+      // nearDoor still true for prompt on orthogonal neighbors
+      assert.ok(nearDoor(x, y, dx, dy), `nearDoor prompt on ${label}`);
+    }
+    // Exact door tile DOES enter
+    const onDoor = resolveEnterTarget(dx, dy, w.houses, -1, true);
+    assert.ok(onDoor, "exact door tile enters");
+    assert.equal(onDoor!.buildingId, "grand-temple");
+    assert.ok(tryEnterBuilding(dx, dy, w.houses, -1));
+
+    // E confirm: on door OK; south facing north OK; south facing other dirs no; side neighbors no
+    assert.ok(canConfirmEnter(dx, dy, 0, dx, dy), "on door any dir");
+    assert.ok(canConfirmEnter(dx, dy + 1, 1, dx, dy), "south facing north");
+    assert.equal(canConfirmEnter(dx, dy + 1, 0, dx, dy), false, "south facing south no");
+    assert.equal(canConfirmEnter(dx - 1, dy, 3, dx, dy), false, "west neighbor no");
+    assert.equal(canConfirmEnter(dx + 1, dy, 2, dx, dy), false, "east neighbor no");
+    assert.equal(canConfirmEnter(dx, dy - 1, 0, dx, dy), false, "north neighbor no");
+
+    assert.ok(resolveConfirmEnterTarget(dx, dy + 1, 1, w.houses, -1, true));
+    assert.equal(resolveConfirmEnterTarget(dx, dy + 1, 0, w.houses, -1, true), null);
+    assert.ok(tryConfirmEnterBuilding(dx, dy, 1, w.houses, -1));
+    assert.ok(tryConfirmEnterBuilding(dx, dy + 1, 1, w.houses, -1));
+    assert.equal(tryConfirmEnterBuilding(dx, dy + 1, 0, w.houses, -1), null);
+    assert.equal(tryConfirmEnterBuilding(dx - 1, dy, 3, w.houses, -1), null);
+
+    // Same rules for a house door
+    const h0 = w.houses[0]!;
+    for (const [ox, oy] of [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ] as const) {
+      assert.equal(
+        tryEnterBuilding(h0.doorX + ox, h0.doorY + oy, w.houses, h0.id),
+        null,
+        `house neighbor ${ox},${oy}`
+      );
+    }
+    assert.ok(tryEnterBuilding(h0.doorX, h0.doorY, w.houses, h0.id));
   }),
 
   test("house enter: own house preferred; visitor allowed; tryEnterBuilding mirrors", () => {
@@ -572,8 +660,10 @@ const tests = [
     assert.equal(session.buildingId, `house-${h0.id}`);
     assert.equal(session.exitX, h0.spawnX);
     assert.equal(session.exitY, h0.spawnY);
-    assert.equal(INTERIOR_SPAWN.x, 4);
-    assert.equal(INTERIOR_SPAWN.y, 6);
+    assert.equal(INTERIOR_SPAWN.x, 6);
+    assert.equal(INTERIOR_SPAWN.y, 7);
+    assert.ok(isInteriorExitMat(INTERIOR_EXIT_MAT.x, INTERIOR_EXIT_MAT.y));
+    assert.equal(isInteriorExitMat(INTERIOR_SPAWN.x, INTERIOR_SPAWN.y), false);
   }),
 
   test("homeOutdoor: own house spawn, else plaza", () => {
@@ -662,10 +752,7 @@ const tests = [
     assert.equal(isBlocked(p.x, p.y), false);
   }),
 
-  test("client interior presentation: dedicated room origin, not worldView/tile pixels", () => {
-    // Regression: showInterior used cameras.main.worldView.center + scrollFactor(0),
-    // then onWarp called syncPlayerPixel() which yanked the avatar to tile (4,6)
-    // world pixels — room gfx stayed off-screen and screenshots looked like map edge.
+  test("client interior presentation: tilemap templates at zoom 3, no rectangle paint", () => {
     const worldSrc = readFileSync(
       join(ROOT, "../../../client/src/scenes/WorldScene.ts"),
       "utf8"
@@ -679,42 +766,99 @@ const tests = [
       false,
       "showInterior must not place gfx at worldView.center"
     );
-    // Dedicated off-map interior origin + zoom 1 room (fills canvas, distinct palette)
-    assert.match(showBody, /INTERIOR_ORIGIN/);
-    assert.match(showBody, /setZoom\s*\(\s*(?:1|INTERIOR_ZOOM)\s*\)/);
-    assert.match(showBody, /tilemap\.setVisible\(false\)/);
-    assert.match(showBody, /0xd8d0bc|floorColor/, "temple floor palette present");
-    assert.match(showBody, /0x3a2e22/, "house floor palette present");
-    // Player parked at interior origin, not syncPlayerPixel tile math
-    assert.match(showBody, /this\.player\.x\s*=\s*ox/);
-    // onWarp interior branch must not call syncPlayerPixel after showInterior
+    // No rectangle-painting interiors
+    assert.equal(
+      /add\.rectangle/.test(showBody),
+      false,
+      "showInterior must not paint rooms with add.rectangle"
+    );
+    assert.match(showBody, /setZoom\s*\(\s*INTERIOR_ZOOM\s*\)/);
+    assert.match(showBody, /buildInteriorWorld/);
+    assert.match(showBody, /WindowedTilemap/);
+    assert.match(showBody, /syncPlayerPixel/);
+    // Shared interior templates exist with distinct kinds
+    const intSrc = readFileSync(
+      join(ROOT, "../../../../packages/shared/src/interiors.ts"),
+      "utf8"
+    );
+    assert.match(intSrc, /function buildHouse/);
+    assert.match(intSrc, /function buildTemple/);
+    assert.match(intSrc, /function buildShrine/);
+    assert.match(intSrc, /Tile\.I_WALL/);
+    assert.match(intSrc, /FLOOR_WOOD/);
+    assert.match(intSrc, /INTERIOR_EXIT_TILE|isInteriorExitTile/);
+    assert.match(intSrc, /INTERIOR_ROOM_W\s*=\s*12/);
+    assert.equal(INTERIOR_ZOOM, 3);
+    assert.equal(OVERWORLD_ZOOM, 3);
+    assert.ok(isInteriorExitMat(INTERIOR_EXIT_MAT.x, INTERIOR_EXIT_MAT.y));
+    // onWarp still calls showInterior; exit restores camera
     const onWarpStart = worldSrc.indexOf("private onWarp");
     const onWarpEnd = worldSrc.indexOf("private showInterior");
     const onWarpBody = worldSrc.slice(onWarpStart, onWarpEnd);
-    const interiorBranch = onWarpBody.slice(
-      onWarpBody.indexOf('msg.place === "interior"'),
-      onWarpBody.indexOf("} else {")
-    );
-    // Strip // comments so the regression note itself doesn't trip the guard.
-    const interiorCode = interiorBranch
-      .split("\n")
-      .map((l) => l.replace(/\/\/.*$/, ""))
-      .join("\n");
-    assert.equal(
-      /syncPlayerPixel\s*\(/.test(interiorCode),
-      false,
-      "onWarp interior path must not syncPlayerPixel after showInterior"
-    );
-    assert.match(interiorCode, /showInterior\s*\(/);
-    // World exit branch still restores overworld pixels + camera
+    assert.match(onWarpBody, /showInterior\s*\(/);
     const elseBranch = onWarpBody.slice(onWarpBody.indexOf("} else {"));
     assert.match(elseBranch, /syncPlayerPixel\s*\(/);
     assert.match(elseBranch, /resumeOverworldCamera\s*\(/);
-    // tilemap visibility helper exists
     const tm = readFileSync(join(ROOT, "../../../client/src/world/WindowedTilemap.ts"), "utf8");
     assert.match(tm, /setVisible\s*\(\s*v:\s*boolean/);
+    assert.match(tm, /destroy\s*\(/);
+  }),
+
+  test("interior templates: collision bake, exit mat walkable, furniture solid", () => {
+    for (const kind of ["house", "temple", "shrine"] as const) {
+      const w = buildInteriorWorld(kind);
+      assert.equal(w.width, 12);
+      assert.equal(w.height, 9);
+      const sp = INTERIOR_SPAWN_TILE.y * w.width + INTERIOR_SPAWN_TILE.x;
+      const ex = INTERIOR_EXIT_TILE.y * w.width + INTERIOR_EXIT_TILE.x;
+      assert.equal(w.collision[sp], 0, `${kind} spawn walkable`);
+      assert.equal(w.collision[ex], 0, `${kind} exit mat walkable`);
+      assert.equal(w.deco[ex], Tile.RUG, `${kind} exit is rug mat`);
+      assert.ok(isInteriorExitTile(INTERIOR_EXIT_TILE.x, INTERIOR_EXIT_TILE.y));
+      assert.equal(w.collision[0], 1, `${kind} NW wall solid`);
+      const L = getInteriorLayers(kind);
+      let furniture = 0;
+      for (let i = 0; i < L.deco.length; i++) {
+        const d = L.deco[i]!;
+        if (d === Tile.TABLE || d === Tile.BED || d === Tile.AMPHORA) furniture++;
+        if (SOLID_TILES.has(d) && d !== Tile.I_WALL && d !== Tile.RUG) {
+          assert.equal(L.collision[i], 1, `${kind} solid deco collides`);
+        }
+      }
+      assert.ok(furniture >= 1, `${kind} has furniture`);
+    }
+  }),
+
+  test("menus: Start list labels + battle path allows party/bag keys", () => {
+    assert.ok(START_MENU_ITEMS.length >= 4);
+    const labels = START_MENU_ITEMS.map((i) => i.label);
+    assert.ok(labels.includes("Party"));
+    assert.ok(labels.includes("Bag"));
+    assert.ok(labels.includes("Settings"));
+    assert.ok(labels.includes("Exit menu"));
+    assert.equal(toggleMenu("none", "start"), "start");
+    assert.equal(toggleMenu("start", "start"), "none");
+    assert.equal(menusBlockWorld("start"), true);
+
+    const worldSrc = readFileSync(
+      join(ROOT, "../../../client/src/scenes/WorldScene.ts"),
+      "utf8"
+    );
+    assert.match(worldSrc, /keyEnter|Key\.ENTER|addKey\("ENTER"\)/);
+    assert.match(worldSrc, /open\("start"\)|menus\.open\("start"\)/);
+    assert.match(worldSrc, /hintBar|key-hint|WASD move/);
+    // DOM listener so Bag/Party/Start work while world is paused in battle
+    assert.match(worldSrc, /installMenuHotkeys/);
+    assert.match(worldSrc, /addEventListener\("keydown"/);
+    const menuSrc = readFileSync(
+      join(ROOT, "../../../client/src/ui/GameMenus.ts"),
+      "utf8"
+    );
+    assert.match(menuSrc, /START_MENU_ITEMS|Exit menu|MENU/);
+    assert.match(menuSrc, /renderStartList|data-start/);
   }),
 ];
+
 
 console.log("\n=== Dominion server unit/integration tests ===\n");
 for (const t of tests) {
