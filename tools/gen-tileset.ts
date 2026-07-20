@@ -240,7 +240,7 @@ function waterTile(ctx: Ctx, phase: number) {
  * Shore / rim tile: solid marble coping ring + 1px foam line + sparse interior waves.
  * No Bayer/dot-spray feather.
  */
-function waterShore(ctx: Ctx) {
+function waterShore(ctx: Ctx, phase = 0) {
   const W = PAL.water;
   const M = PAL.marble;
   // water interior
@@ -254,13 +254,13 @@ function waterShore(ctx: Ctx) {
   vline(ctx, T - 1, 3, 4, M.base);
   px(ctx, 0, 3, M.light);
   px(ctx, T - 1, 3, M.dark);
-  // 1px foam line under coping
-  hline(ctx, 1, 3, T - 2, W.pale);
+  // 1px foam line under coping (phase shifts foam)
+  hline(ctx, 1, 3 + (phase ? 1 : 0), T - 2, phase ? W.light : W.pale);
   // sparse interior wave stamps (not spray)
-  hline(ctx, 3, 7, 4, W.light);
-  px(ctx, 5, 6, W.pale);
-  hline(ctx, 8, 11, 3, W.light);
-  px(ctx, 2, 13, W.light);
+  hline(ctx, 3 + phase, 7, 4, W.light);
+  px(ctx, 5 + phase, 6, W.pale);
+  hline(ctx, 8 - phase, 11, 3, W.light);
+  px(ctx, 2 + phase * 2, 13, W.light);
 }
 
 function rockGround(ctx: Ctx, seed: number) {
@@ -302,34 +302,44 @@ function woodFloor(ctx: Ctx, seed: number) {
 // deco painters
 // ---------------------------------------------------------------------------
 
-function flowers(ctx: Ctx, color: string, colorLight: string) {
+function flowers(ctx: Ctx, color: string, colorLight: string, phase = 0) {
+  // 3 distinct blooms + stems — readable at 16px; phase shifts petal lean (same cluster)
+  const ox = phase === 0 ? 0 : 1;
   const flower = (cx: number, cy: number) => {
-    px(ctx, cx, cy - 1, color);
+    px(ctx, cx + ox, cy - 1, color);
     px(ctx, cx, cy + 1, color);
-    px(ctx, cx - 1, cy, color);
-    px(ctx, cx + 1, cy, color);
+    px(ctx, cx - 1 + ox, cy, color);
+    px(ctx, cx + 1 + ox, cy, color);
     px(ctx, cx - 1, cy - 1, colorLight);
-    px(ctx, cx, cy, PAL.goldL);
-    px(ctx, cx + 1, cy + 2, PAL.grass.deep);
-    px(ctx, cx - 2, cy + 1, PAL.grass.deep);
+    px(ctx, cx + 1, cy - 1 - (phase ? 0 : 0), colorLight);
+    px(ctx, cx + ox, cy, PAL.goldL);
+    px(ctx, cx, cy + 2, PAL.grass.deep);
+    px(ctx, cx, cy + 3, PAL.grass.dark);
   };
-  flower(4, 4);
-  flower(11, 7);
-  flower(5, 12);
+  flower(4 + (phase ? 1 : 0), 5);
+  flower(11 - (phase ? 1 : 0), 7);
+  flower(7, 12 - (phase ? 1 : 0));
 }
 
 function bush(ctx: Ctx) {
+  // Silhouette: wide low mound (≠ amphora tall vase, ≠ statue figure)
   const C = PAL.canopy;
   dropShadow(ctx, 8, 14, 5.5);
-  contactShadow(ctx, 3, 14, 10);
-  // volume: lit top-left, mid front
-  rect(ctx, 3, 4, 10, 9, C.base);
-  rect(ctx, 4, 3, 8, 3, C.light);
-  rect(ctx, 2, 6, 3, 5, C.dark);
-  rect(ctx, 11, 7, 3, 5, C.deep);
-  px(ctx, 5, 2, C.lush);
-  px(ctx, 8, 2, C.light);
-  rect(ctx, 5, 8, 4, 3, C.dark);
+  contactShadow(ctx, 2, 14, 12);
+  // dark interior core
+  rect(ctx, 4, 6, 8, 6, C.deep);
+  // outer foliage mound
+  rect(ctx, 2, 5, 12, 8, C.base);
+  rect(ctx, 3, 3, 10, 4, C.light);
+  // scalloped top lobes (bushy read)
+  px(ctx, 4, 2, C.lush);
+  px(ctx, 7, 1, C.light);
+  px(ctx, 10, 2, C.lush);
+  px(ctx, 5, 2, C.light);
+  px(ctx, 9, 2, C.light);
+  // deep holes in canopy
+  rect(ctx, 5, 8, 3, 3, C.deep);
+  rect(ctx, 10, 7, 2, 4, C.dark);
   applySelectiveOutline(ctx, T, C.deep);
 }
 
@@ -363,11 +373,12 @@ function treeTrunk(ctx: Ctx) {
 
 function treeCanopy(ctx: Ctx) {
   const C = PAL.canopy;
-  // dense clumps with form shading
+  // dense clumps — near-black interior holes
   rect(ctx, 1, 2, 14, 12, C.base);
   rect(ctx, 2, 1, 10, 4, C.light);
   rect(ctx, 1, 6, 5, 6, C.dark);
   rect(ctx, 10, 7, 5, 6, C.deep);
+  rect(ctx, 6, 7, 4, 4, PAL.ink); // deep canopy core
   px(ctx, 5, 1, C.lush);
   rect(ctx, 4, 3, 2, 2, C.lush);
   rect(ctx, 9, 4, 3, 2, C.light);
@@ -502,50 +513,45 @@ const STATUE_TOP_TPL = [
 ];
 
 function statueTop(ctx: Ctx) {
+  // Humanoid silhouette: head + shoulders + raised spear (≠ bush mound, ≠ amphora)
   const M = PAL.marble;
-  const palMap: Record<string, string> = {
-    o: M.deep,
-    w: M.base,
-    l: M.light,
-    g: PAL.gold,
-    s: P.s4, // shield steel from palette
-    d: M.dark,
-    c: PAL.crimson,
-  };
-  drawTemplate(ctx, STATUE_TOP_TPL, palMap);
-  px(ctx, 2, 8, PAL.gold);
-  px(ctx, 2, 9, M.dark);
-  px(ctx, 1, 8, M.deep);
-  px(ctx, 3, 0, PAL.goldL);
-  px(ctx, 3, 1, PAL.gold);
-  px(ctx, 7, 3, M.light);
+  // head
+  rect(ctx, 6, 1, 4, 4, M.light);
+  px(ctx, 7, 2, M.base);
+  px(ctx, 8, 2, M.base);
+  // spear up-left
+  vline(ctx, 3, 0, 8, PAL.gold);
+  px(ctx, 2, 0, PAL.goldL);
+  px(ctx, 4, 0, PAL.goldL);
+  // shoulders / torso
+  rect(ctx, 4, 5, 8, 5, M.base);
+  rect(ctx, 5, 5, 6, 2, M.light);
+  vline(ctx, 4, 5, 5, M.deep);
+  vline(ctx, 11, 5, 5, M.deep);
+  // shield bump right
+  rect(ctx, 11, 6, 3, 4, M.dark);
+  px(ctx, 12, 7, P.s4);
   applySelectiveOutline(ctx, T, M.deep);
 }
 
 function statueBase(ctx: Ctx) {
+  // Legs + plinth — narrow legs on wide base (humanoid foot read)
   const M = PAL.marble;
   dropShadow(ctx, 8, 14, 6.5);
   contactShadow(ctx, 1, 14, 14);
-  rect(ctx, 3, 0, 10, 3, M.base);
-  hline(ctx, 3, 0, 10, M.light);
-  vline(ctx, 3, 0, 3, M.deep);
-  vline(ctx, 12, 0, 3, M.deep);
-  rect(ctx, 2, 3, 12, 2, M.light);
-  hline(ctx, 2, 4, 12, M.vein);
-  vline(ctx, 2, 3, 2, M.deep);
-  vline(ctx, 13, 3, 2, M.deep);
-  rect(ctx, 4, 5, 8, 7, M.base);
-  vline(ctx, 4, 5, 7, M.light);
-  vline(ctx, 3, 5, 7, M.deep);
-  vline(ctx, 12, 5, 7, M.deep);
-  vline(ctx, 11, 5, 7, M.dark);
-  hline(ctx, 6, 7, 4, M.deep);
-  hline(ctx, 6, 9, 4, M.vein);
-  rect(ctx, 2, 12, 12, 2, M.base);
-  hline(ctx, 2, 12, 12, M.light);
+  // legs
+  rect(ctx, 5, 0, 3, 8, M.base);
+  rect(ctx, 9, 0, 3, 8, M.base);
+  vline(ctx, 5, 0, 8, M.light);
+  vline(ctx, 11, 0, 8, M.deep);
+  // tunic hem
+  hline(ctx, 4, 0, 8, M.light);
+  // wide plinth
+  rect(ctx, 2, 9, 12, 5, M.base);
+  rect(ctx, 2, 9, 12, 2, M.light);
   hline(ctx, 2, 13, 12, M.deep);
-  vline(ctx, 1, 12, 2, M.deep);
-  vline(ctx, 14, 12, 2, M.deep);
+  vline(ctx, 2, 9, 5, M.deep);
+  vline(ctx, 13, 9, 5, M.deep);
   applySelectiveOutline(ctx, T, M.deep);
 }
 
@@ -553,10 +559,12 @@ function statueBase(ctx: Ctx) {
  * Fountain 2×2 assembly: solid rim ring fills each 16×16 tile edge-to-edge.
  * Rim art flush to tile edges so solid footprint has non-empty ground art
  * filling the solid tile width. Interior basin water + center spout.
+ * `sprayPhase` 0|1 offsets spray droplets only — geometry stays the same 2×2.
  */
-function paintFountain(fctx: Ctx) {
+function paintFountain(fctx: Ctx, sprayPhase = 0) {
   const M = PAL.marble;
   const W = PAL.water;
+  const sp = sprayPhase ? 1 : 0;
   // 1-tile-south hard shadow under the whole 2×2
   southCastShadow(fctx, 2, 30, 28);
   contactShadow(fctx, 2, 31, 28);
@@ -630,18 +638,25 @@ function paintFountain(fctx: Ctx) {
   rect(fctx, 13, 6, 6, 3, M.light);
   hline(fctx, 13, 6, 6, M.deep);
   hline(fctx, 13, 8, 6, M.dark);
-  px(fctx, 14, 7, W.pale);
-  px(fctx, 17, 7, W.pale);
-  px(fctx, 15, 5, W.pale);
-  px(fctx, 16, 4, W.light);
-  px(fctx, 15, 3, W.pale);
+  // spray plume (phase shifts droplet positions — same spout geometry)
+  px(fctx, 14, 7 - sp, W.pale);
+  px(fctx, 17, 7 - sp, W.pale);
+  px(fctx, 15, 5 - sp, W.pale);
+  px(fctx, 16, 4 - sp, W.light);
+  px(fctx, 15, 3 - sp, W.pale);
   px(fctx, 16, 2, W.light);
-  px(fctx, 15, 4, W.light);
-  px(fctx, 14, 5, W.light);
-  px(fctx, 17, 5, W.light);
-  px(fctx, 13, 10, W.pale);
-  px(fctx, 18, 10, W.pale);
-  px(fctx, 14, 11, W.pale);
+  px(fctx, 15 + sp, 4, W.light);
+  px(fctx, 14 - sp, 5, W.light);
+  px(fctx, 17 + sp, 5, W.light);
+  px(fctx, 13, 10 + sp, W.pale);
+  px(fctx, 18, 10 + sp, W.pale);
+  px(fctx, 14 + sp, 11, W.pale);
+  if (sp) {
+    px(fctx, 15, 1, W.pale);
+    px(fctx, 16, 0, W.light);
+    px(fctx, 12, 9, W.pale);
+    px(fctx, 19, 9, W.pale);
+  }
   px(fctx, 17, 11, W.pale);
   applySelectiveOutline(fctx, 32, M.deep);
 }
@@ -746,6 +761,7 @@ function terrainPainter(kind: TerrainKind, variant = 0): (c: Ctx) => void {
 function paintRoofBand(rctx: Ctx, w: number, upper: boolean) {
   const R = PAL.roof;
   rect(rctx, 0, 0, w, T, R.base);
+  // tiled shingles
   for (let row = 0; row < 4; row++) {
     const y = row * 4;
     hline(rctx, 0, y, w, upper && row === 0 ? R.lighter : R.light);
@@ -758,16 +774,146 @@ function paintRoofBand(rctx: Ctx, w: number, upper: boolean) {
     }
   }
   if (upper) {
+    // ridge line (peak read)
     hline(rctx, 0, 0, w, R.deep);
     hline(rctx, 0, 1, w, R.lighter);
+    hline(rctx, 0, 2, w, R.light);
   } else {
+    // body — darker toward eave
+    hline(rctx, 0, T - 4, w, R.dark);
+    hline(rctx, 0, T - 3, w, R.deep);
     hline(rctx, 0, T - 2, w, R.deep);
-    hline(rctx, 0, T - 1, w, PAL.crimsonD);
+    hline(rctx, 0, T - 1, w, PAL.ink);
   }
   vline(rctx, 0, 0, T, R.deep);
   vline(rctx, 1, 0, T, R.lighter);
   vline(rctx, w - 1, 0, T, R.deep);
   vline(rctx, w - 2, 0, T, R.dark);
+}
+
+/** Full-tile near-black eave shadow row (roof meets facade). */
+function paintEaveShadow(ctx: Ctx) {
+  rect(ctx, 0, 0, T, T, PAL.ink);
+  hline(ctx, 0, 0, T, PAL.roof.deep);
+  hline(ctx, 0, 1, T, PAL.roof.dark);
+  for (let x = 0; x < T; x += 3) px(ctx, x, 2, PAL.roof.deep);
+  hline(ctx, 0, T - 1, T, PAL.ink);
+}
+
+/** Ridge cap tile — bright peak + dark flanks. */
+function paintRoofRidge(ctx: Ctx) {
+  const R = PAL.roof;
+  rect(ctx, 0, 0, T, T, R.base);
+  hline(ctx, 0, 0, T, R.deep);
+  hline(ctx, 0, 1, T, R.lighter);
+  hline(ctx, 0, 2, T, R.light);
+  hline(ctx, 0, 3, T, R.base);
+  for (let y = 4; y < T; y++) {
+    hline(ctx, 0, y, T, y % 2 === 0 ? R.dark : R.base);
+  }
+  // ridge crest diamond
+  px(ctx, 7, 1, R.lighter);
+  px(ctx, 8, 1, R.lighter);
+  px(ctx, 7, 2, PAL.goldL);
+  px(ctx, 8, 2, PAL.gold);
+  vline(ctx, 0, 0, T, R.deep);
+  vline(ctx, T - 1, 0, T, R.deep);
+}
+
+function lanternTile(ctx: Ctx) {
+  const W = PAL.wood;
+  dropShadow(ctx, 8, 14, 3);
+  // bracket
+  hline(ctx, 4, 2, 6, W.dark);
+  vline(ctx, 10, 2, 4, W.base);
+  // lantern body
+  rect(ctx, 5, 5, 6, 7, PAL.gold);
+  rect(ctx, 6, 6, 4, 5, PAL.goldL);
+  hline(ctx, 5, 5, 6, W.deep);
+  hline(ctx, 5, 11, 6, W.deep);
+  px(ctx, 7, 8, PAL.goldL);
+  px(ctx, 8, 8, PAL.gold);
+  applySelectiveOutline(ctx, T, W.deep);
+}
+
+function fenceTile(ctx: Ctx) {
+  const W = PAL.wood;
+  const M = PAL.marble;
+  // posts + rail
+  vline(ctx, 2, 4, 10, W.dark);
+  vline(ctx, 3, 4, 10, W.base);
+  vline(ctx, 12, 4, 10, W.dark);
+  vline(ctx, 13, 4, 10, W.base);
+  hline(ctx, 2, 6, 12, M.light);
+  hline(ctx, 2, 7, 12, W.deep);
+  hline(ctx, 2, 10, 12, M.base);
+  hline(ctx, 2, 11, 12, W.deep);
+  // pickets
+  for (const x of [5, 8, 11]) {
+    vline(ctx, x, 5, 8, W.base);
+  }
+  applySelectiveOutline(ctx, T, W.deep);
+}
+
+function signpostTile(ctx: Ctx) {
+  const W = PAL.wood;
+  dropShadow(ctx, 8, 14, 3);
+  vline(ctx, 7, 2, 12, W.dark);
+  vline(ctx, 8, 2, 12, W.base);
+  rect(ctx, 3, 3, 10, 5, PAL.crimson);
+  hline(ctx, 3, 3, 10, PAL.gold);
+  hline(ctx, 3, 7, 10, PAL.crimsonD);
+  px(ctx, 5, 5, PAL.goldL);
+  px(ctx, 8, 5, PAL.goldL);
+  applySelectiveOutline(ctx, T, W.deep);
+}
+
+function hedgeTile(ctx: Ctx) {
+  const C = PAL.canopy;
+  // dense dark hedge block — deep interior
+  rect(ctx, 1, 2, 14, 12, C.base);
+  rect(ctx, 2, 1, 12, 4, C.light);
+  rect(ctx, 1, 6, 6, 7, C.deep);
+  rect(ctx, 9, 7, 6, 6, C.dark);
+  rect(ctx, 5, 8, 4, 4, C.deep);
+  px(ctx, 4, 2, C.lush);
+  px(ctx, 11, 3, C.lush);
+  applySelectiveOutline(ctx, T, C.deep);
+}
+
+function awningTile(ctx: Ctx) {
+  // hanging cloth strip (banner frame B / market awning)
+  dropShadow(ctx, 8, 14, 3);
+  hline(ctx, 1, 2, 14, PAL.wood.dark);
+  hline(ctx, 1, 3, 14, PAL.wood.base);
+  rect(ctx, 2, 4, 12, 8, PAL.crimson);
+  vline(ctx, 2, 4, 8, PAL.crimsonD);
+  vline(ctx, 13, 4, 8, PAL.crimsonD);
+  // stripe
+  hline(ctx, 3, 7, 10, PAL.gold);
+  // scallops
+  for (const x of [3, 6, 9, 12]) px(ctx, x, 12, PAL.crimsonD);
+  applySelectiveOutline(ctx, T, PAL.crimsonD);
+}
+
+function marketTile(ctx: Ctx) {
+  const W = PAL.wood;
+  dropShadow(ctx, 8, 14, 5);
+  contactShadow(ctx, 2, 14, 12);
+  // stall table
+  rect(ctx, 2, 8, 12, 4, W.base);
+  hline(ctx, 2, 8, 12, W.light);
+  hline(ctx, 2, 11, 12, W.deep);
+  vline(ctx, 2, 8, 4, W.deep);
+  vline(ctx, 13, 8, 4, W.deep);
+  // goods piles
+  rect(ctx, 3, 5, 4, 3, PAL.crimson);
+  rect(ctx, 8, 4, 5, 4, PAL.gold);
+  px(ctx, 9, 5, PAL.goldL);
+  // legs
+  vline(ctx, 3, 12, 2, W.dark);
+  vline(ctx, 12, 12, 2, W.dark);
+  applySelectiveOutline(ctx, T, W.deep);
 }
 
 function paintWallStrip(wctx: Ctx, w: number) {
@@ -819,18 +965,20 @@ function doorTile(ctx: Ctx) {
   paintWallStrip(ctx, T);
   const D = PAL.door;
   const M = PAL.marble;
+  // frame
   rect(ctx, 3, 3, 10, 13, M.light);
   vline(ctx, 3, 3, 13, M.dark);
   vline(ctx, 12, 3, 13, M.deep);
   hline(ctx, 3, 3, 10, M.light);
-  rect(ctx, 5, 5, 6, 11, D.dark);
-  rect(ctx, 5, 6, 6, 10, D.wood);
+  // near-black interior void (deepest door step)
+  rect(ctx, 5, 5, 6, 11, D.darker);
+  rect(ctx, 5, 5, 6, 11, PAL.ink);
+  // wood panels (slightly raised from void)
+  rect(ctx, 6, 6, 2, 9, D.wood);
+  rect(ctx, 9, 6, 2, 9, D.wood);
   hline(ctx, 5, 5, 6, D.darker);
-  hline(ctx, 5, 6, 6, D.darker);
-  vline(ctx, 8, 6, 10, D.darker);
-  vline(ctx, 5, 6, 10, D.light);
-  vline(ctx, 6, 7, 9, D.dark);
-  vline(ctx, 10, 7, 9, D.dark);
+  vline(ctx, 5, 5, 11, D.dark);
+  vline(ctx, 10, 5, 11, D.dark);
   px(ctx, 7, 11, PAL.gold);
   px(ctx, 9, 11, PAL.gold);
   hline(ctx, 4, 15, 8, M.cream);
@@ -1101,13 +1249,13 @@ function cliffTop(ctx: Ctx, seed: number) {
 
 /** Raised one-step marble court floor (lighter than base marble field). */
 function marbleCourtFloor(ctx: Ctx) {
+  // Warm cream court — higher value than wall mid; teal accent joints
   const M = PAL.marble;
-  // one value step up from base marble fill
   rect(ctx, 0, 0, T, T, M.light);
   paintSlabSeamsFromRamp(ctx, [M.base, M.light, M.cream, M.light, M.base]);
-  // quiet vein accents
-  px(ctx, 4, 5, M.vein);
-  px(ctx, 11, 9, M.vein);
+  // court signature teal accent on seams
+  px(ctx, 4, 5, PAL.teal);
+  px(ctx, 11, 9, PAL.teal);
   px(ctx, 7, 12, M.base);
 }
 
@@ -1258,28 +1406,32 @@ function table(ctx: Ctx) {
 }
 
 function amphora(ctx: Ctx) {
+  // Silhouette: narrow neck + bulbous body + tiny foot (classic vase)
   const M = PAL.marble;
+  const W = PAL.wood;
   dropShadow(ctx, 8, 14, 4.5);
   contactShadow(ctx, 4, 14, 8);
-  // body volume
-  rect(ctx, 5, 4, 6, 8, M.base);
-  vline(ctx, 5, 4, 8, M.light);
-  vline(ctx, 6, 4, 8, M.light);
-  vline(ctx, 9, 4, 8, M.dark);
-  vline(ctx, 10, 4, 8, M.deep);
-  // neck + rim (top lit)
-  rect(ctx, 6, 2, 4, 2, M.light);
-  hline(ctx, 6, 2, 4, M.light);
-  hline(ctx, 6, 3, 4, M.vein);
-  // base
-  rect(ctx, 4, 12, 8, 2, M.dark);
-  hline(ctx, 4, 12, 8, M.base);
-  hline(ctx, 4, 13, 8, M.deep);
-  // handles
-  px(ctx, 4, 6, M.vein);
-  px(ctx, 11, 6, M.dark);
-  px(ctx, 4, 7, M.deep);
-  px(ctx, 11, 7, M.deep);
+  // rim
+  rect(ctx, 5, 1, 6, 2, M.light);
+  hline(ctx, 5, 1, 6, M.light);
+  // neck (narrow)
+  rect(ctx, 6, 3, 4, 3, M.base);
+  vline(ctx, 6, 3, 3, M.light);
+  vline(ctx, 9, 3, 3, M.deep);
+  // bulbous body
+  rect(ctx, 4, 6, 8, 6, M.base);
+  rect(ctx, 5, 6, 3, 5, M.light);
+  rect(ctx, 9, 7, 3, 5, M.dark);
+  vline(ctx, 4, 6, 6, M.deep);
+  vline(ctx, 11, 6, 6, M.deep);
+  // pointed foot
+  rect(ctx, 6, 12, 4, 2, M.dark);
+  hline(ctx, 6, 13, 4, M.deep);
+  // loop handles
+  px(ctx, 3, 7, W.dark);
+  px(ctx, 3, 8, W.deep);
+  px(ctx, 12, 7, W.dark);
+  px(ctx, 12, 8, W.deep);
   applySelectiveOutline(ctx, T, M.deep);
 }
 
@@ -1302,24 +1454,27 @@ function Mlight() {
   return PAL.marble.light;
 }
 
-function banner(ctx: Ctx) {
+/** Hanging banner; phase 1 = cloth lean (flutter), still a banner not an awning. */
+function banner(ctx: Ctx, phase = 0) {
   dropShadow(ctx, 8, 14, 3.5);
   // pole
   vline(ctx, 7, 0, 4, PAL.wood.dark);
   vline(ctx, 8, 0, 4, PAL.wood.base);
-  // cloth
-  rect(ctx, 4, 3, 8, 10, PAL.crimson);
-  vline(ctx, 4, 3, 10, PAL.crimsonD);
-  vline(ctx, 11, 3, 10, PAL.crimsonD);
-  hline(ctx, 4, 3, 8, PAL.gold);
-  hline(ctx, 5, 7, 6, PAL.gold);
-  px(ctx, 7, 5, PAL.goldL);
-  px(ctx, 8, 5, PAL.goldL);
+  // cloth — phase shifts hang slightly
+  const ox = phase ? 1 : 0;
+  rect(ctx, 4 + ox, 3, 8, 10, PAL.crimson);
+  vline(ctx, 4 + ox, 3, 10, PAL.crimsonD);
+  vline(ctx, 11 + ox, 3, 10, PAL.crimsonD);
+  hline(ctx, 4 + ox, 3, 8, PAL.gold);
+  hline(ctx, 5 + ox, 7 + (phase ? 1 : 0), 6, PAL.gold);
+  px(ctx, 7 + ox, 5, PAL.goldL);
+  px(ctx, 8 + ox, 5 + (phase ? 1 : 0), PAL.goldL);
   // scallop bottom
-  px(ctx, 4, 13, PAL.crimsonD);
-  px(ctx, 6, 13, PAL.crimson);
-  px(ctx, 8, 13, PAL.crimson);
-  px(ctx, 10, 13, PAL.crimsonD);
+  px(ctx, 4 + ox, 13, PAL.crimsonD);
+  px(ctx, 6 + ox, 13 + (phase ? 0 : 0), PAL.crimson);
+  px(ctx, 8 + ox, 13, PAL.crimson);
+  px(ctx, 10 + ox, 13, PAL.crimsonD);
+  if (phase) px(ctx, 5, 14, PAL.crimsonD);
   applySelectiveOutline(ctx, T, PAL.crimsonD);
 }
 
@@ -1349,7 +1504,9 @@ function main() {
 
   // multi-tile assemblies
   const fountain = makeCanvas(32, 32);
-  paintFountain(fountain.ctx);
+  paintFountain(fountain.ctx, 0);
+  const fountain2 = makeCanvas(32, 32);
+  paintFountain(fountain2.ctx, 1);
   const roofUpper = makeCanvas(48, T);
   paintRoofBand(roofUpper.ctx, 48, true);
   const roofLower = makeCanvas(48, T);
@@ -1377,7 +1534,8 @@ function main() {
   paint(Tile.WATER, (c) => waterTile(c, 0));
   paint(Tile.WATER2, (c) => waterTile(c, 1));
   paint(Tile.WATER3, (c) => waterTile(c, 2));
-  paint(Tile.WATER_SHORE, (c) => waterShore(c));
+  paint(Tile.WATER_SHORE, (c) => waterShore(c, 0));
+  paint(Tile.WATER_SHORE2, (c) => waterShore(c, 1));
   paint(Tile.ROCK_GROUND, (c) => rockGround(c, 909));
   paint(Tile.ROCK_GROUND2, (c) => rockGround(c, 1011));
   paint(Tile.ROCK_GROUND3, (c) => rockGround(c, 1112));
@@ -1385,8 +1543,10 @@ function main() {
   paint(Tile.SNOW2, (c) => snowTile(c, 222));
   paint(Tile.FLOOR_WOOD, (c) => woodFloor(c, 121));
 
-  paint(Tile.FLOWERS_RED, (c) => flowers(c, PAL.crimson, PAL.gold), false);
-  paint(Tile.FLOWERS_GOLD, (c) => flowers(c, PAL.gold, PAL.goldL), false);
+  paint(Tile.FLOWERS_RED, (c) => flowers(c, PAL.crimson, PAL.gold, 0), false);
+  paint(Tile.FLOWERS_GOLD, (c) => flowers(c, PAL.gold, PAL.goldL, 0), false);
+  paint(Tile.FLOWERS_RED2, (c) => flowers(c, PAL.crimson, PAL.gold, 1), false);
+  paint(Tile.FLOWERS_GOLD2, (c) => flowers(c, PAL.gold, PAL.goldL, 1), false);
   paint(Tile.BUSH, (c) => bush(c), false);
   paint(Tile.BOULDER, (c) => boulder(c), false);
   paint(Tile.TREE_TRUNK, (c) => treeTrunk(c), false);
@@ -1399,6 +1559,10 @@ function main() {
   blit(Tile.FOUNTAIN_NE, fountain.canvas, 16, 0);
   blit(Tile.FOUNTAIN_SW, fountain.canvas, 0, 16);
   blit(Tile.FOUNTAIN_SE, fountain.canvas, 16, 16);
+  blit(Tile.FOUNTAIN_NW2, fountain2.canvas, 0, 0);
+  blit(Tile.FOUNTAIN_NE2, fountain2.canvas, 16, 0);
+  blit(Tile.FOUNTAIN_SW2, fountain2.canvas, 0, 16);
+  blit(Tile.FOUNTAIN_SE2, fountain2.canvas, 16, 16);
 
   blit(Tile.H_ROOF_NW, roofUpper.canvas, 0, 0);
   blit(Tile.H_ROOF_N, roofUpper.canvas, 16, 0);
@@ -1406,10 +1570,18 @@ function main() {
   blit(Tile.H_ROOF_W, roofLower.canvas, 0, 0);
   blit(Tile.H_ROOF_M, roofLower.canvas, 16, 0);
   blit(Tile.H_ROOF_E, roofLower.canvas, 32, 0);
+  paint(Tile.H_EAVE_SHADOW, (c) => paintEaveShadow(c));
+  paint(Tile.H_ROOF_RIDGE, (c) => paintRoofRidge(c));
   paint(Tile.H_WALL, (c) => paintWallStrip(c, T));
   paint(Tile.H_WALL_WIN, (c) => wallWindow(c));
   paint(Tile.H_DOOR, (c) => doorTile(c));
   paint(Tile.H_WALL_COL, (c) => wallColumn(c));
+  paint(Tile.LANTERN, (c) => lanternTile(c), false);
+  paint(Tile.FENCE, (c) => fenceTile(c), false);
+  paint(Tile.SIGNPOST, (c) => signpostTile(c), false);
+  paint(Tile.HEDGE, (c) => hedgeTile(c), false);
+  paint(Tile.AWNING, (c) => awningTile(c), false);
+  paint(Tile.MARKET, (c) => marketTile(c), false);
 
   blit(Tile.T_PED_W, pediment.canvas, 0, 0);
   blit(Tile.T_PED_M, pediment.canvas, 16, 0);
@@ -1431,7 +1603,8 @@ function main() {
   paint(Tile.TREE_CANOPY, (c) => treeCanopy(c), false);
   paint(Tile.COLUMN_TOP, (c) => columnTop(c), false);
   paint(Tile.STATUE_TOP, (c) => statueTop(c), false);
-  paint(Tile.BANNER, (c) => banner(c), false);
+  paint(Tile.BANNER, (c) => banner(c, 0), false);
+  paint(Tile.BANNER2, (c) => banner(c, 1), false);
 
   paint(Tile.CLIFF_FACE, (c) => cliffFace(c, 151));
   paint(Tile.CLIFF_TOP, (c) => cliffTop(c, 161));

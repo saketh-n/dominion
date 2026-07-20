@@ -154,11 +154,43 @@ export enum Tile {
    */
   MARBLE_COURT = 93,
 
+  // --- DP art-pass: roof eave + dense clutter vocabulary ---
+  /** 1-row eave shadow where roof meets facade (near-black under-eave). */
+  H_EAVE_SHADOW = 94,
+  /** Ridge cap row (peak of tiled roof mass). */
+  H_ROOF_RIDGE = 95,
+  /** Wall lantern / sconce (wall-face or path-edge accent). */
+  LANTERN = 96,
+  /** Low fence / balustrade segment. */
+  FENCE = 97,
+  /** Wayfinding / shop sign post. */
+  SIGNPOST = 98,
+  /** Dense hedge mass (dark interior canopy). */
+  HEDGE = 99,
+  /** Fabric awning strip (overhead / wall-adjacent). */
+  AWNING = 100,
+  /** Market stall / crate clutter prop. */
+  MARKET = 101,
+
+  // --- animation frame variants (same object, different phase; never swap geometry) ---
+  /** Banner cloth flutter frame B (still a hanging banner). */
+  BANNER2 = 102,
+  /** Fountain 2×2 spray phase B (same corner geometry, spray offset). */
+  FOUNTAIN_NW2 = 103,
+  FOUNTAIN_NE2 = 104,
+  FOUNTAIN_SW2 = 105,
+  FOUNTAIN_SE2 = 106,
+  /** Flower sway frame B (same color cluster, petal offset). */
+  FLOWERS_RED2 = 107,
+  FLOWERS_GOLD2 = 108,
+  /** Shore foam phase B (still shore rim, not open water). */
+  WATER_SHORE2 = 109,
+
   /**
    * First index of terrain-pair blob transition sets.
    * Layout: TRANSITION_BASE + pairId * 48 + blobIndex (0..47).
    */
-  TRANSITION_BASE = 94,
+  TRANSITION_BASE = 110,
 
   /** Total tile slots = TRANSITION_BASE + pairs * 48 */
   COUNT = TRANSITION_BASE + TRANSITION_PAIR_COUNT * BLOB_TILE_COUNT,
@@ -178,11 +210,15 @@ function buildSolidTiles(): Set<number> {
     Tile.COLUMN_BASE,
     // COLUMN_SHAFT is NOT solid — freestanding mid-shaft is overhead art only
     Tile.STATUE_BASE,
-    // Fountain solid = rim ring tiles only (the 2×2 spout/rim stamps)
+    // Fountain solid = rim ring tiles only (the 2×2 spout/rim stamps + anim frames)
     Tile.FOUNTAIN_NW,
     Tile.FOUNTAIN_NE,
     Tile.FOUNTAIN_SW,
     Tile.FOUNTAIN_SE,
+    Tile.FOUNTAIN_NW2,
+    Tile.FOUNTAIN_NE2,
+    Tile.FOUNTAIN_SW2,
+    Tile.FOUNTAIN_SE2,
     Tile.CRATE,
     Tile.BENCH,
     Tile.PLANTER,
@@ -194,9 +230,17 @@ function buildSolidTiles(): Set<number> {
     Tile.H_ROOF_W,
     Tile.H_ROOF_M,
     Tile.H_ROOF_E,
+    Tile.H_EAVE_SHADOW,
+    Tile.H_ROOF_RIDGE,
     Tile.H_WALL,
     Tile.H_WALL_WIN,
     Tile.H_WALL_COL,
+    Tile.LANTERN,
+    Tile.FENCE,
+    Tile.SIGNPOST,
+    Tile.HEDGE,
+    Tile.AWNING,
+    Tile.MARKET,
     Tile.T_PED_W,
     Tile.T_PED_M,
     Tile.T_PED_E,
@@ -375,4 +419,9 @@ export const SHADOW_PROPS: readonly number[] = [
   Tile.CRATE,
   Tile.BENCH,
   Tile.PLANTER,
+  Tile.HEDGE,
+  Tile.MARKET,
+  Tile.SIGNPOST,
+  Tile.LANTERN,
+  Tile.FENCE,
 ];

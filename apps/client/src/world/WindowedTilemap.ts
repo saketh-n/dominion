@@ -8,6 +8,9 @@ import {
   TALL_PROP_TOP,
   TALL_PROP_STACK,
   tallPropOverlayTiles,
+  animatedTileIndex,
+  isAnimatedTile,
+  TILE_ANIM_PERIOD_MS,
 } from "@game/shared";
 import { WorldModel } from "./WorldModel";
 import {
@@ -98,12 +101,16 @@ export class WindowedTilemap {
     this.map.destroy();
   }
 
+  /** Last animation period index applied (for ~500ms tile loops). */
+  private lastAnimPeriod = -1;
+
   /** Call every frame with the follow target's tile coordinates. */
   update(centerTileX: number, centerTileY: number): void {
     const next = desiredOrigin(centerTileX, centerTileY, VIEW_W, VIEW_H);
     const prev: StreamOrigin | null =
       this.ox === Number.MIN_SAFE_INTEGER ? null : { ox: this.ox, oy: this.oy };
     if (!needsStream(prev, next)) {
+      this.tickAnimatedTiles();
       return;
     }
 
@@ -121,6 +128,38 @@ export class WindowedTilemap {
     }
     this.streamCount++;
     this.syncTallProps();
+    this.tickAnimatedTiles(true);
+  }
+
+  /**
+   * Advance water / fountain / banner / flower tile frames (~500ms cadence).
+   * Phase offset is per world cell so water doesn't shimmer in lockstep.
+   */
+  private tickAnimatedTiles(force = false): void {
+    if (this.ox === Number.MIN_SAFE_INTEGER) return;
+    const now = this.scene.time.now;
+    const period = Math.floor(now / TILE_ANIM_PERIOD_MS);
+    if (!force && period === this.lastAnimPeriod) return;
+    this.lastAnimPeriod = period;
+    for (let ty = 0; ty < VIEW_H; ty++) {
+      for (let tx = 0; tx < VIEW_W; tx++) {
+        const wx = this.ox + tx;
+        const wy = this.oy + ty;
+        if (!this.world.inBounds(wx, wy)) continue;
+        const g = this.world.ground(wx, wy);
+        if (isAnimatedTile(g)) {
+          this.ground.putTileAt(animatedTileIndex(g, now, wx, wy), tx, ty, false);
+        }
+        const d = this.world.deco(wx, wy);
+        if (d && isAnimatedTile(d) && !isTallPropBase(d)) {
+          this.deco.putTileAt(animatedTileIndex(d, now, wx, wy), tx, ty, false);
+        }
+        const o = this.world.overhead(wx, wy);
+        if (o && isAnimatedTile(o)) {
+          this.overhead.putTileAt(animatedTileIndex(o, now, wx, wy), tx, ty, false);
+        }
+      }
+    }
   }
 
   /** Force tall-prop depth refresh (e.g. after player moves within same window). */
@@ -159,7 +198,14 @@ export class WindowedTilemap {
       this.overhead.putTileAt(-1, tx, ty, false);
       return;
     }
-    this.ground.putTileAt(w.ground(wx, wy), tx, ty, false);
+    const now = this.scene.time?.now ?? 0;
+    const g0 = w.ground(wx, wy);
+    this.ground.putTileAt(
+      isAnimatedTile(g0) ? animatedTileIndex(g0, now, wx, wy) : g0,
+      tx,
+      ty,
+      false
+    );
     const d = w.deco(wx, wy);
     // Tall prop bases are drawn as Y-sorted sprites — leave deco empty
     if (d !== 0 && isTallPropBase(d)) {

@@ -31,10 +31,10 @@ export interface PublicBuilding {
 }
 
 /**
- * Capital public interiors. Coords = gen-map H_DOOR cells:
- * - temple: stampTemple(511, PY0+3) → door at topY+4 = 485
- * - west/east shrine: stampShrine(cx, PY0+10) → door at topY+4 = 492
- * - south exedra: stampShrine(511, PY1-12) → door at topY+4 = 537
+ * Capital public interiors. Coords = gen-map H_DOOR cells after roof mass:
+ * - temple: stampTemple(511, PY0+3=481) roof 4 + facade → door at topY+8 = 489
+ * - west/east shrine: stampShrine(cx, PY0+10=488) roof 3 → door at topY+7 = 495
+ * - south exedra: stampShrine(511, PY1-12=533) → door at topY+7 = 540
  */
 export const PUBLIC_BUILDINGS: readonly PublicBuilding[] = [
   {
@@ -42,36 +42,36 @@ export const PUBLIC_BUILDINGS: readonly PublicBuilding[] = [
     kind: "temple",
     name: "Grand Temple",
     doorX: 511,
-    doorY: 485, // facade H_DOOR (not the approach road at 489)
+    doorY: 489, // facade H_DOOR under 4-row roof mass
     exitX: 511,
-    exitY: 486, // first step south of door
+    exitY: 490, // first step south of door
   },
   {
     id: "south-exedra",
     kind: "shrine",
     name: "South Exedra",
     doorX: 511,
-    doorY: 537, // stampShrine topY+4
+    doorY: 540,
     exitX: 511,
-    exitY: 538,
+    exitY: 541,
   },
   {
     id: "west-shrine",
     kind: "shrine",
     name: "West Shrine",
     doorX: 486,
-    doorY: 492,
+    doorY: 495,
     exitX: 486,
-    exitY: 493,
+    exitY: 496,
   },
   {
     id: "east-shrine",
     kind: "shrine",
     name: "East Shrine",
     doorX: 537,
-    doorY: 492,
+    doorY: 495,
     exitX: 537,
-    exitY: 493,
+    exitY: 496,
   },
 ];
 

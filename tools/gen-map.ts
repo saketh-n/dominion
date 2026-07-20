@@ -62,6 +62,16 @@ import {
   tryConsumeBudget,
   type ZoneBudget,
   type LayerView,
+  houseRoofColumn,
+  houseWallRow,
+  houseDoorRow,
+  HOUSE_ROOF_ROWS,
+  HOUSE_DOOR_LOCAL_Y,
+  HOUSE_WIDTH,
+  isRoofTile,
+  isFacadeTile,
+  ORGANIC_GROUND,
+  PUBLIC_BUILDINGS,
 } from "../packages/shared/src/index.js";
 import { rng } from "./pixel.js";
 
@@ -547,69 +557,99 @@ for (let x = PX0 + 4; x <= PX1 - 4; x++) {
   }
 }
 
-// grand temple at the north end of the plaza (faces south) — multi-height massing
-// 2–3 tile front facade: pediment + frieze + colonnade/cella + door row + steps
+// grand temple — building = footprint + front face + roof top (3–5 roof rows).
+// Layout (north→south): ridge, roof body×2, eave shadow, pediment/frieze, colonnade, door, steps.
+// Door at topY+7 (facade base); steps connect podium (topY+7) to court (topY+10).
 function stampTemple(cx: number, topY: number, width: number) {
-  // width odd, columns every 2 tiles
   const x0 = cx - (width - 1) / 2;
   const x1 = x0 + width - 1;
-  // rear podium / cella wall mass (taller silhouette) — 3 rows deep
+  const roofH = 4; // within 3–5
+  // rear podium / cella mass north of roof (taller silhouette, marble only)
   for (let row = -3; row <= -1; row++) {
     for (let x = x0 - 2; x <= x1 + 2; x++) {
-      deco[idx(x, topY + row, W)] = row === -1 ? Tile.T_FRIEZE : Tile.T_CELLA;
-      terrain[idx(x, topY + row, W)] = TerrainKind.MARBLE;
+      const i = idx(x, topY + row, W);
+      deco[i] = row === -1 ? Tile.T_FRIEZE : Tile.T_CELLA;
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.T_FLOOR;
     }
   }
-  // pediment (3 wide centered)
-  deco[idx(cx - 1, topY, W)] = Tile.T_PED_W;
-  deco[idx(cx, topY, W)] = Tile.T_PED_M;
-  deco[idx(cx + 1, topY, W)] = Tile.T_PED_E;
-  // side pediment wings as frieze
-  for (let x = x0; x <= x1; x++) {
-    if (x === cx - 1 || x === cx || x === cx + 1) continue;
-    deco[idx(x, topY, W)] = Tile.T_FRIEZE;
+  // --- ROOF MASS (tiled + ridge + eave) — force marble under structure ---
+  for (let row = 0; row < roofH; row++) {
+    for (let x = x0 - 1; x <= x1 + 1; x++) {
+      const i = idx(x, topY + row, W);
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.T_FLOOR;
+      const edgeW = x === x0 - 1 || x === x0;
+      const edgeE = x === x1 || x === x1 + 1;
+      if (row === 0) {
+        deco[i] = edgeW ? Tile.H_ROOF_NW : edgeE ? Tile.H_ROOF_NE : Tile.H_ROOF_RIDGE;
+      } else if (row === roofH - 1) {
+        deco[i] = Tile.H_EAVE_SHADOW;
+      } else if (row === 1) {
+        deco[i] = edgeW ? Tile.H_ROOF_W : edgeE ? Tile.H_ROOF_E : Tile.H_ROOF_N;
+      } else {
+        deco[i] = edgeW ? Tile.H_ROOF_W : edgeE ? Tile.H_ROOF_E : Tile.H_ROOF_M;
+      }
+    }
   }
-  // double frieze band (entablature height) — lit top of facade
-  for (let x = x0; x <= x1; x++) deco[idx(x, topY + 1, W)] = Tile.T_FRIEZE;
-  // colonnade (3 rows tall massing): columns on even offsets, shadowed cella between
-  // front facade height: frieze + col top + mid + base/door = 2–3 tile vertical wall read
+  const facade0 = topY + roofH;
+  // pediment centered on facade top
+  deco[idx(cx - 1, facade0, W)] = Tile.T_PED_W;
+  deco[idx(cx, facade0, W)] = Tile.T_PED_M;
+  deco[idx(cx + 1, facade0, W)] = Tile.T_PED_E;
+  for (let x = x0; x <= x1; x++) {
+    terrain[idx(x, facade0, W)] = TerrainKind.MARBLE;
+    ground[idx(x, facade0, W)] = Tile.T_FLOOR;
+    if (x === cx - 1 || x === cx || x === cx + 1) continue;
+    deco[idx(x, facade0, W)] = Tile.T_FRIEZE;
+  }
+  // frieze / entablature
+  for (let x = x0; x <= x1; x++) {
+    deco[idx(x, facade0 + 1, W)] = Tile.T_FRIEZE;
+    terrain[idx(x, facade0 + 1, W)] = TerrainKind.MARBLE;
+    ground[idx(x, facade0 + 1, W)] = Tile.T_FLOOR;
+  }
+  // colonnade + door (2 rows shaft + door base)
   for (let x = x0; x <= x1; x++) {
     const isCol = (x - x0) % 2 === 0;
-    deco[idx(x, topY + 2, W)] = isCol ? Tile.T_COL_TOP : Tile.T_CELLA;
-    deco[idx(x, topY + 3, W)] = isCol ? Tile.T_COL_MID : Tile.T_CELLA;
-    // door at center base of facade; engaged columns / wall elsewhere
-    if (x === cx) {
-      deco[idx(x, topY + 4, W)] = Tile.H_DOOR;
-    } else if (isCol) {
-      deco[idx(x, topY + 4, W)] = Tile.T_COL_MID;
-    } else {
-      deco[idx(x, topY + 4, W)] = Tile.H_WALL;
+    deco[idx(x, facade0 + 2, W)] = isCol ? Tile.T_COL_TOP : Tile.T_CELLA;
+    deco[idx(x, facade0 + 3, W)] = isCol ? Tile.T_COL_MID : Tile.T_CELLA;
+    if (x === cx) deco[idx(x, facade0 + 4, W)] = Tile.H_DOOR;
+    else if (isCol) deco[idx(x, facade0 + 4, W)] = Tile.T_COL_MID;
+    else deco[idx(x, facade0 + 4, W)] = Tile.H_WALL;
+    for (let r = 2; r <= 4; r++) {
+      terrain[idx(x, facade0 + r, W)] = TerrainKind.MARBLE;
+      ground[idx(x, facade0 + r, W)] = Tile.T_FLOOR;
     }
   }
-  // triple steps (walkable terrace) — multi-level approach
+  // triple steps: podium (door row) → court level (legible two-level stair)
   for (let s = 0; s < 3; s++) {
     for (let x = x0 - 2; x <= x1 + 2; x++) {
-      deco[idx(x, topY + 5 + s, W)] = 0;
-      ground[idx(x, topY + 5 + s, W)] = Tile.T_STEPS;
+      const i = idx(x, facade0 + 5 + s, W);
+      deco[i] = 0;
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.T_STEPS;
     }
   }
-  // banners on outer columns + mid spans (accent massing)
-  overhead[idx(x0, topY + 1, W)] = Tile.BANNER;
-  overhead[idx(x1, topY + 1, W)] = Tile.BANNER;
-  overhead[idx(cx - 4, topY + 1, W)] = Tile.BANNER;
-  overhead[idx(cx + 4, topY + 1, W)] = Tile.BANNER;
-  overhead[idx(cx - 2, topY + 1, W)] = Tile.BANNER;
-  overhead[idx(cx + 2, topY + 1, W)] = Tile.BANNER;
-  // greenery / amphora accents flanking temple approach
+  // banners on frieze row
+  const banY = facade0 + 1;
+  for (const bx of [x0, x1, cx - 4, cx + 4, cx - 2, cx + 2]) {
+    overhead[idx(bx, banY, W)] = Tile.BANNER;
+  }
+  // greenery / clutter flanking approach (density)
   for (const [ax, ay, t] of [
-    [x0 - 3, topY + 6, Tile.BUSH],
-    [x1 + 3, topY + 6, Tile.BUSH],
-    [x0 - 2, topY + 7, Tile.FLOWERS_RED],
-    [x1 + 2, topY + 7, Tile.FLOWERS_GOLD],
-    [x0 - 4, topY + 5, Tile.AMPHORA],
-    [x1 + 4, topY + 5, Tile.AMPHORA],
-    [cx - 6, topY + 8, Tile.TREE_TRUNK],
-    [cx + 6, topY + 8, Tile.TREE_TRUNK],
+    [x0 - 3, facade0 + 6, Tile.HEDGE],
+    [x1 + 3, facade0 + 6, Tile.HEDGE],
+    [x0 - 2, facade0 + 7, Tile.FLOWERS_RED],
+    [x1 + 2, facade0 + 7, Tile.FLOWERS_GOLD],
+    [x0 - 4, facade0 + 5, Tile.AMPHORA],
+    [x1 + 4, facade0 + 5, Tile.AMPHORA],
+    [x0 - 3, facade0 + 5, Tile.LANTERN],
+    [x1 + 3, facade0 + 5, Tile.LANTERN],
+    [cx - 6, facade0 + 8, Tile.TREE_TRUNK],
+    [cx + 6, facade0 + 8, Tile.TREE_TRUNK],
+    [cx - 5, facade0 + 9, Tile.SIGNPOST],
+    [cx + 5, facade0 + 9, Tile.SIGNPOST],
   ] as const) {
     const i = idx(ax, ay, W);
     if (deco[i] === 0 && terrain[i] !== TerrainKind.WATER) {
@@ -629,23 +669,52 @@ function stampCol3(x: number, y: number): boolean {
   return placeStamp(STAMP_COLUMN_3, x, y, false);
 }
 
-// secondary side shrines (smaller temples) on E/W plaza terraces + south exedra
-// Entrance = center H_DOOR on the step row (walk-on door tile, Pokémon-style).
+// secondary side shrines — 3-row roof + facade + door on steps (Pokémon walk-on door).
 function stampShrine(cx: number, topY: number) {
-  deco[idx(cx - 1, topY, W)] = Tile.T_PED_W;
-  deco[idx(cx, topY, W)] = Tile.T_PED_M;
-  deco[idx(cx + 1, topY, W)] = Tile.T_PED_E;
-  for (let x = cx - 1; x <= cx + 1; x++) deco[idx(x, topY + 1, W)] = Tile.T_FRIEZE;
-  deco[idx(cx - 1, topY + 2, W)] = Tile.T_COL_TOP;
-  deco[idx(cx + 1, topY + 2, W)] = Tile.T_COL_TOP;
-  deco[idx(cx, topY + 2, W)] = Tile.T_CELLA;
-  deco[idx(cx - 1, topY + 3, W)] = Tile.T_COL_MID;
-  deco[idx(cx + 1, topY + 3, W)] = Tile.T_COL_MID;
-  deco[idx(cx, topY + 3, W)] = Tile.T_CELLA;
+  // roof mass: ridge, body, eave (3 rows)
   for (let x = cx - 1; x <= cx + 1; x++) {
-    ground[idx(x, topY + 4, W)] = Tile.T_STEPS;
-    // Center cell is the walkable door threshold; flanks stay clear steps.
-    deco[idx(x, topY + 4, W)] = x === cx ? Tile.H_DOOR : 0;
+    for (let row = 0; row < 3; row++) {
+      const i = idx(x, topY + row, W);
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.T_FLOOR;
+      if (row === 0) {
+        deco[i] = x === cx - 1 ? Tile.H_ROOF_NW : x === cx + 1 ? Tile.H_ROOF_NE : Tile.H_ROOF_RIDGE;
+      } else if (row === 1) {
+        deco[i] = x === cx - 1 ? Tile.H_ROOF_W : x === cx + 1 ? Tile.H_ROOF_E : Tile.H_ROOF_M;
+      } else {
+        deco[i] = Tile.H_EAVE_SHADOW;
+      }
+    }
+  }
+  const f0 = topY + 3;
+  deco[idx(cx - 1, f0, W)] = Tile.T_PED_W;
+  deco[idx(cx, f0, W)] = Tile.T_PED_M;
+  deco[idx(cx + 1, f0, W)] = Tile.T_PED_E;
+  for (let x = cx - 1; x <= cx + 1; x++) {
+    deco[idx(x, f0 + 1, W)] = Tile.T_FRIEZE;
+    terrain[idx(x, f0, W)] = TerrainKind.MARBLE;
+    terrain[idx(x, f0 + 1, W)] = TerrainKind.MARBLE;
+    ground[idx(x, f0, W)] = Tile.T_FLOOR;
+    ground[idx(x, f0 + 1, W)] = Tile.T_FLOOR;
+  }
+  deco[idx(cx - 1, f0 + 2, W)] = Tile.T_COL_TOP;
+  deco[idx(cx + 1, f0 + 2, W)] = Tile.T_COL_TOP;
+  deco[idx(cx, f0 + 2, W)] = Tile.T_CELLA;
+  deco[idx(cx - 1, f0 + 3, W)] = Tile.T_COL_MID;
+  deco[idx(cx + 1, f0 + 3, W)] = Tile.T_COL_MID;
+  deco[idx(cx, f0 + 3, W)] = Tile.T_CELLA;
+  for (let x = cx - 1; x <= cx + 1; x++) {
+    terrain[idx(x, f0 + 2, W)] = TerrainKind.MARBLE;
+    terrain[idx(x, f0 + 3, W)] = TerrainKind.MARBLE;
+    ground[idx(x, f0 + 2, W)] = Tile.T_FLOOR;
+    ground[idx(x, f0 + 3, W)] = Tile.T_FLOOR;
+  }
+  // door threshold on step row
+  for (let x = cx - 1; x <= cx + 1; x++) {
+    const i = idx(x, f0 + 4, W);
+    terrain[i] = TerrainKind.MARBLE;
+    ground[i] = Tile.T_STEPS;
+    deco[i] = x === cx ? Tile.H_DOOR : 0;
   }
 }
 stampShrine(486, PY0 + 10);
@@ -917,38 +986,53 @@ for (let y = PY0 + 12; y <= PY1 - 12; y += 4) {
   }
 }
 
-// Two stoas flanking the temple approach (long colonnaded halls):
-// back wall + roof + open colonnade front. Contiguous ≥ 3×2 footprint.
+// Two stoas: 3-row roof mass + back wall + open colonnade (architrave on columns).
 function stampStoa(x0: number, y0: number, x1: number, y1: number, frontEast: boolean): void {
-  // Roof / architrave band on north row
+  // 3-row roof band on north (ridge, body, eave)
   for (let x = x0; x <= x1; x++) {
-    const i = idx(x, y0, W);
-    deco[i] = Tile.H_ROOF_N;
-    terrain[i] = TerrainKind.MARBLE;
+    for (let row = 0; row < 3; row++) {
+      const i = idx(x, y0 + row, W);
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.T_FLOOR;
+      if (row === 0) {
+        deco[i] = x === x0 ? Tile.H_ROOF_NW : x === x1 ? Tile.H_ROOF_NE : Tile.H_ROOF_RIDGE;
+      } else if (row === 1) {
+        deco[i] = x === x0 ? Tile.H_ROOF_W : x === x1 ? Tile.H_ROOF_E : Tile.H_ROOF_N;
+      } else {
+        deco[i] = Tile.H_EAVE_SHADOW;
+      }
+    }
   }
-  // Back wall (west if frontEast, else east) + end walls
+  const wallY0 = y0 + 3;
   const backX = frontEast ? x0 : x1;
   const frontX = frontEast ? x1 : x0;
-  for (let y = y0 + 1; y <= y1; y++) {
+  for (let y = wallY0; y <= y1; y++) {
     deco[idx(backX, y, W)] = Tile.H_WALL;
     terrain[idx(backX, y, W)] = TerrainKind.MARBLE;
-    // end caps
+    ground[idx(backX, y, W)] = Tile.T_FLOOR;
     deco[idx(x0, y, W)] = deco[idx(x0, y, W)] || Tile.H_WALL_COL;
     deco[idx(x1, y, W)] = deco[idx(x1, y, W)] || Tile.H_WALL_COL;
     terrain[idx(x0, y, W)] = TerrainKind.MARBLE;
     terrain[idx(x1, y, W)] = TerrainKind.MARBLE;
+    ground[idx(x0, y, W)] = Tile.T_FLOOR;
+    ground[idx(x1, y, W)] = Tile.T_FLOOR;
   }
-  // Open colonnade on front face (columns every 3 tiles) + frieze architrave
-  for (let y = y0 + 1; y <= y1; y += 3) {
-    stampCol3(frontX, y);
+  // Colonnade every 3 tiles; architrave only between supported column pairs
+  const colYs: number[] = [];
+  for (let y = wallY0; y <= y1; y += 3) {
+    if (stampCol3(frontX, y)) colYs.push(y);
   }
-  for (let y = y0 + 1; y <= y1; y++) {
-    const i = idx(frontX, y, W);
-    if (deco[i] === 0) deco[i] = Tile.T_FRIEZE;
-    terrain[i] = TerrainKind.MARBLE;
+  for (let i = 0; i + 1 < colYs.length; i++) {
+    const a = colYs[i]!;
+    const b = colYs[i + 1]!;
+    for (let ty = a + 1; ty < b; ty++) {
+      const i2 = idx(frontX, ty, W);
+      if (deco[i2] === 0) deco[i2] = Tile.T_FRIEZE;
+      terrain[i2] = TerrainKind.MARBLE;
+    }
   }
-  // Interior floor under stoa
-  for (let y = y0 + 1; y <= y1; y++) {
+  // Interior floor — marble only (no organic terrain inside structure)
+  for (let y = wallY0; y <= y1; y++) {
     for (let x = x0 + 1; x <= x1 - 1; x++) {
       const i = idx(x, y, W);
       terrain[i] = TerrainKind.MARBLE;
@@ -1171,22 +1255,32 @@ for (let y = CITY_Y0 + 4; y <= CITY_Y1 - 4; y += 6) {
 const houses: HouseDef[] = [];
 
 function stampHouse(hx: number, hy: number, id: number) {
-  // 5 wide x 4 tall; door at (hx+2, hy+3)
-  const roofTop = [Tile.H_ROOF_NW, Tile.H_ROOF_N, Tile.H_ROOF_N, Tile.H_ROOF_N, Tile.H_ROOF_NE];
-  const roofBot = [Tile.H_ROOF_W, Tile.H_ROOF_M, Tile.H_ROOF_M, Tile.H_ROOF_M, Tile.H_ROOF_E];
-  const wallRow = [Tile.H_WALL_COL, Tile.H_WALL_WIN, Tile.H_WALL, Tile.H_WALL_WIN, Tile.H_WALL_COL];
-  const doorRow = [Tile.H_WALL, Tile.H_WALL, Tile.H_DOOR, Tile.H_WALL, Tile.H_WALL];
-  for (let i2 = 0; i2 < 5; i2++) {
-    deco[idx(hx + i2, hy, W)] = roofTop[i2];
-    deco[idx(hx + i2, hy + 1, W)] = roofBot[i2];
-    deco[idx(hx + i2, hy + 2, W)] = wallRow[i2];
-    deco[idx(hx + i2, hy + 3, W)] = doorRow[i2];
+  // footprint + facade + 4-row roof (ridge/body/body/eave) + wall + door
+  const w = HOUSE_WIDTH;
+  for (let i2 = 0; i2 < w; i2++) {
+    const col = houseRoofColumn(i2, w);
+    for (let r = 0; r < HOUSE_ROOF_ROWS; r++) {
+      const i = idx(hx + i2, hy + r, W);
+      deco[i] = col[r]!;
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.FLOOR_WOOD;
+    }
+    const wi = idx(hx + i2, hy + HOUSE_ROOF_ROWS, W);
+    deco[wi] = houseWallRow(i2, w);
+    terrain[wi] = TerrainKind.MARBLE;
+    ground[wi] = Tile.FLOOR_WOOD;
+    const di = idx(hx + i2, hy + HOUSE_DOOR_LOCAL_Y, W);
+    deco[di] = houseDoorRow(i2, w);
+    terrain[di] = TerrainKind.MARBLE;
+    ground[di] = Tile.FLOOR_WOOD;
   }
-  const doorX = hx + 2;
-  const doorY = hy + 3;
-  // path from the door to the street below — clear deco/overhead/collision so
-  // earlier plaza-frame props never leave spawn tiles solid.
-  for (let py = doorY; py <= hy + 5; py++) {
+  // window lanterns on wall row ends
+  overhead[idx(hx, hy + HOUSE_ROOF_ROWS, W)] = Tile.LANTERN;
+  overhead[idx(hx + w - 1, hy + HOUSE_ROOF_ROWS, W)] = Tile.LANTERN;
+  const doorX = hx + ((w / 2) | 0);
+  const doorY = hy + HOUSE_DOOR_LOCAL_Y;
+  // path from door to street — clear solids on stoop
+  for (let py = doorY; py <= hy + HOUSE_DOOR_LOCAL_Y + 2; py++) {
     const i = idx(doorX, py, W);
     if (py > doorY) {
       terrain[i] = TerrainKind.DIRT;
@@ -1194,16 +1288,27 @@ function stampHouse(hx: number, hy: number, id: number) {
     }
     overhead[i] = 0;
     collision[i] = 0;
-    // also clear flanks so 3-tile columns don't block the stoop
     for (const fx of [doorX - 1, doorX + 1]) {
       const fi = idx(fx, py, W);
-      if (deco[fi] === Tile.COLUMN_BASE || deco[fi] === Tile.PILLAR || deco[fi] === Tile.T_FRIEZE) {
+      if (
+        deco[fi] === Tile.COLUMN_BASE ||
+        deco[fi] === Tile.PILLAR ||
+        deco[fi] === Tile.T_FRIEZE ||
+        deco[fi] === Tile.FENCE
+      ) {
         deco[fi] = 0;
         overhead[fi] = 0;
         collision[fi] = 0;
       }
     }
   }
+  // fence on door flanks (walkable approach stays clear)
+  const fy = doorY;
+  if (deco[idx(hx - 1, fy, W)] === 0) deco[idx(hx - 1, fy, W)] = Tile.FENCE;
+  if (deco[idx(hx + w, fy, W)] === 0) deco[idx(hx + w, fy, W)] = Tile.FENCE;
+  // flowers (non-solid) on stoop flanks — not solid planters off path-edge grammar
+  if (deco[idx(hx - 1, fy + 1, W)] === 0) deco[idx(hx - 1, fy + 1, W)] = Tile.FLOWERS_RED;
+  if (deco[idx(hx + w, fy + 1, W)] === 0) deco[idx(hx + w, fy + 1, W)] = Tile.FLOWERS_GOLD;
   houses.push({ id, doorX, doorY, spawnX: doorX, spawnY: doorY + 1 });
 }
 
@@ -1415,6 +1520,149 @@ for (let y = 2; y < H - 2; y++) {
 }
 console.log(`scatter decals placed: ${scatterCount.toLocaleString()}`);
 
+// Density pass: fill capital frames so bare ground ≤ ~30% (props + clutter vocabulary).
+// Grammar-respecting: crates need wall neighbors; benches/planters on path edges;
+// awnings/banners only on wall/column faces.
+console.log("density clutter pass...");
+{
+  let dens = 0;
+  const view = layerView();
+  const isPathCell = (x: number, y: number) => {
+    const t = terrain[idx(x, y, W)];
+    return t === TerrainKind.STONE || t === TerrainKind.DIRT || t === TerrainKind.MARBLE;
+  };
+  // Plaza hedges / flowers / fences + grammar-gated solid props
+  for (let y = PY0 + 4; y <= PY1 - 4; y++) {
+    for (let x = PX0 + 4; x <= PX1 - 4; x++) {
+      const i = idx(x, y, W);
+      if (deco[i] !== 0 || overhead[i] !== 0) continue;
+      if (terrain[i] === TerrainKind.WATER) continue;
+      if (
+        SOLID_TILES.has(ground[i]) &&
+        ground[i] !== Tile.MARBLE_FLOOR &&
+        ground[i] !== Tile.MARBLE_COURT &&
+        ground[i] !== Tile.STONE_ROAD &&
+        ground[i] !== Tile.STONE_ROAD2 &&
+        ground[i] !== Tile.STONE_ROAD3 &&
+        ground[i] !== Tile.MARBLE_FLOOR2 &&
+        ground[i] !== Tile.MARBLE_FLOOR3
+      )
+        continue;
+      const h = hash01(x, y, 77);
+      if ((x + y) % 2 !== 0 && h > 0.55) continue;
+      if (h < 0.1) {
+        deco[i] = Tile.HEDGE;
+        dens++;
+      } else if (h < 0.18) {
+        deco[i] = Tile.FLOWERS_RED;
+        dens++;
+      } else if (h < 0.26) {
+        deco[i] = Tile.FLOWERS_GOLD;
+        dens++;
+      } else if (h < 0.32 && (x % 3 === 0 || y % 3 === 0)) {
+        deco[i] = Tile.FENCE;
+        dens++;
+      } else if (h < 0.38 && canPlaceBenchOrPlanter(isPathCell, x, y)) {
+        deco[i] = Tile.BENCH;
+        dens++;
+      } else if (h < 0.44 && canPlaceBenchOrPlanter(isPathCell, x, y)) {
+        deco[i] = Tile.PLANTER;
+        dens++;
+      } else if (h < 0.48 && canPlaceCrate(view, x, y)) {
+        deco[i] = Tile.MARKET;
+        dens++;
+      } else if (h < 0.52 && canPlaceCrate(view, x, y)) {
+        deco[i] = Tile.CRATE;
+        dens++;
+      } else if (h < 0.56) {
+        deco[i] = Tile.SIGNPOST;
+        dens++;
+      } else if (h < 0.6) {
+        deco[i] = Tile.LANTERN;
+        dens++;
+      } else if (h < 0.64) {
+        deco[i] = Tile.AMPHORA;
+        dens++;
+      } else if (h < 0.68 && canPlaceBanner(view, x, y)) {
+        overhead[i] = Tile.AWNING;
+        dens++;
+      } else if (h < 0.74) {
+        deco[i] = poolPick(x, y);
+        dens++;
+      }
+    }
+  }
+  // District lawn denser lattice (non-solid clutter free; solid only on path edges)
+  for (let y = CITY_Y0 + 4; y <= CITY_Y1 - 4; y++) {
+    for (let x = CITY_X0 + 3; x <= CITY_X1 - 3; x++) {
+      const i = idx(x, y, W);
+      if (houseClear.has(i)) continue;
+      if (x >= PX0 && x <= PX1 && y >= PY0 && y <= PY1) continue;
+      if (deco[i] !== 0) continue;
+      if (terrain[i] !== TerrainKind.GRASS && terrain[i] !== TerrainKind.STONE && terrain[i] !== TerrainKind.DIRT)
+        continue;
+      if (x % 2 !== 0 || y % 2 !== 0) continue;
+      const h = hash01(x, y, 88);
+      if (h < 0.22) {
+        deco[i] = Tile.HEDGE;
+        dens++;
+      } else if (h < 0.38) {
+        deco[i] = h < 0.3 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
+        dens++;
+      } else if (h < 0.48) {
+        deco[i] = Tile.BUSH;
+        dens++;
+      } else if (h < 0.55) {
+        deco[i] = Tile.FENCE;
+        dens++;
+      } else if (h < 0.62 && canPlaceBenchOrPlanter(isPathCell, x, y)) {
+        deco[i] = Tile.PLANTER;
+        dens++;
+      } else if (h < 0.68) {
+        deco[i] = Tile.LANTERN;
+        dens++;
+      } else if (h < 0.72 && canPlaceCrate(view, x, y)) {
+        deco[i] = Tile.MARKET;
+        dens++;
+      } else if (h < 0.78) {
+        deco[i] = Tile.SIGNPOST;
+        dens++;
+      }
+    }
+  }
+  console.log(`density clutter placed: ${dens.toLocaleString()}`);
+}
+
+function poolPick(x: number, y: number): number {
+  const pool = [
+    Tile.DECAL_PEBBLES,
+    Tile.DECAL_TUFT,
+    Tile.DECAL_LEAF,
+    Tile.DECAL_CRACKS,
+    Tile.DECAL_RUBBLE,
+    Tile.DECAL_MOSS,
+  ];
+  return pool[Math.floor(hash01(x, y, 9) * pool.length) % pool.length]!;
+}
+
+// Purge organic ground under structure deco (roofs/walls/facades)
+{
+  let purged = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = idx(x, y, W);
+      const d = deco[i];
+      if (!isRoofTile(d) && !isFacadeTile(d) && d !== Tile.H_DOOR) continue;
+      if (ORGANIC_GROUND.has(ground[i])) {
+        terrain[i] = TerrainKind.MARBLE;
+        ground[i] = Tile.T_FLOOR;
+        purged++;
+      }
+    }
+  }
+  console.log(`organic-in-structure purged: ${purged}`);
+}
+
 // PAINTING only on wall-face tiles (never open floor). Delete any floor placements.
 {
   const view = layerView();
@@ -1437,9 +1685,9 @@ console.log(`scatter decals placed: ${scatterCount.toLocaleString()}`);
   }
   // Place paintings on temple / house wall faces (mirrored)
   const wallPaintSeeds: Array<{ x: number; y: number; kind: string }> = [];
-  // Temple facade wall cells (H_WALL / T_COL on deco)
+  // Temple facade frieze row (topY=PY0+3, roof 4 → facade0+1 = PY0+8)
   for (let x = 500; x <= 522; x += 2) {
-    const wy = PY0 + 7; // wall row of stampTemple facade
+    const wy = PY0 + 8;
     if (canPlacePainting(view, x, wy)) wallPaintSeeds.push({ x, y: wy, kind: "painting" });
   }
   // Side wall runs flanking temple approach
@@ -1557,6 +1805,101 @@ function finalizePoolBasin(): void {
 }
 console.log("finalize pool basin (pure WATER + POOL_COPING, no water transitions)...");
 finalizePoolBasin();
+
+// Re-clear house door/spawn + 3-wide stoop south to street after density clutter
+for (const h of houses) {
+  for (let dy = 0; dy <= 4; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const hx = h.doorX + dx;
+      const hy = h.doorY + dy;
+      const i = idx(hx, hy, W);
+      const isDoor = hx === h.doorX && hy === h.doorY;
+      if (!isDoor) {
+        // clear solid clutter off path (keep non-solid flowers/decals ok but clear solids)
+        if (SOLID_TILES.has(deco[i]!)) deco[i] = 0;
+      }
+      overhead[i] = 0;
+      if (!isDoor && SOLID_TILES.has(ground[i]!)) {
+        terrain[i] = TerrainKind.STONE;
+        ground[i] = baseTileForTerrain(TerrainKind.STONE, (hx + hy) % 3);
+      }
+    }
+  }
+  // ensure door tile is walkable H_DOOR
+  const di = idx(h.doorX, h.doorY, W);
+  deco[di] = Tile.H_DOOR;
+  if (SOLID_TILES.has(ground[di]!)) {
+    ground[di] = Tile.FLOOR_WOOD;
+    terrain[di] = TerrainKind.MARBLE;
+  }
+}
+// Clear solid clutter off all stone/dirt roads in city (path connectivity)
+for (let y = CITY_Y0; y <= CITY_Y1; y++) {
+  for (let x = CITY_X0; x <= CITY_X1; x++) {
+    const i = idx(x, y, W);
+    const t = terrain[i];
+    if (t !== TerrainKind.STONE && t !== TerrainKind.DIRT) continue;
+    // don't strip structure deco
+    if (isRoofTile(deco[i]!) || isFacadeTile(deco[i]!) || deco[i] === Tile.H_DOOR) continue;
+    if (SOLID_TILES.has(deco[i]!)) deco[i] = 0;
+  }
+}
+// Public building doors + exits + step approaches must stay walkable
+for (const b of PUBLIC_BUILDINGS) {
+  for (let dy = 0; dy <= 3; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = b.doorX + dx;
+      const y = b.doorY + dy;
+      const i = idx(x, y, W);
+      const isDoor = x === b.doorX && y === b.doorY;
+      if (!isDoor && SOLID_TILES.has(deco[i]!)) deco[i] = 0;
+      if (!isDoor) overhead[i] = 0;
+    }
+  }
+  deco[idx(b.doorX, b.doorY, W)] = Tile.H_DOOR;
+}
+
+// Final placement-grammar enforcement (benches/planters path-edge; banners wall-face)
+{
+  const view = layerView();
+  // Match placement.test path predicate for plaza benches
+  const isPlazaPath = (x: number, y: number) => {
+    const g = ground[idx(x, y, W)];
+    return (
+      g === Tile.STONE_ROAD ||
+      g === Tile.STONE_ROAD2 ||
+      g === Tile.STONE_ROAD3 ||
+      g === Tile.DIRT_PATH ||
+      g === Tile.DIRT_PATH2 ||
+      g === Tile.DIRT_PATH3 ||
+      (x >= 508 && x <= 515) ||
+      (y >= 515 && y <= 522 && x >= PX0 && x <= PX1)
+    );
+  };
+  for (let y = PY0; y <= PY1; y++) {
+    for (let x = PX0; x <= PX1; x++) {
+      const i = idx(x, y, W);
+      if ((deco[i] === Tile.BENCH || deco[i] === Tile.PLANTER) && !canPlaceBenchOrPlanter(isPlazaPath, x, y)) {
+        deco[i] = Tile.FLOWERS_GOLD; // demote to non-solid clutter
+      }
+      if (deco[i] === Tile.BANNER && !canPlaceBanner(view, x, y)) deco[i] = 0;
+      if (overhead[i] === Tile.BANNER && !canPlaceBanner(view, x, y)) overhead[i] = 0;
+      if (overhead[i] === Tile.AWNING && !canPlaceBanner(view, x, y)) overhead[i] = 0;
+    }
+  }
+  // Ensure awnings on valid wall/column faces (tile 100 vocabulary)
+  let awnings = 0;
+  for (let y = PY0 + 2; y <= PY1 - 2 && awnings < 40; y += 2) {
+    for (let x = PX0 + 2; x <= PX1 - 2 && awnings < 40; x += 2) {
+      if (!canPlaceBanner(view, x, y)) continue;
+      const i = idx(x, y, W);
+      if (overhead[i] !== 0) continue;
+      if (deco[i] === Tile.H_DOOR) continue;
+      overhead[i] = Tile.AWNING;
+      awnings++;
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // collision + validation

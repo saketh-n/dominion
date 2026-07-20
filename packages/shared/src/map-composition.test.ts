@@ -241,6 +241,8 @@ if (existsSync(worldPath)) {
     Tile.H_ROOF_W,
     Tile.H_ROOF_M,
     Tile.H_ROOF_E,
+    Tile.H_ROOF_RIDGE,
+    Tile.H_EAVE_SHADOW,
     Tile.STATUE_BASE,
     Tile.STATUE_TOP,
     Tile.PILLAR,

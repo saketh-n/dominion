@@ -8,70 +8,80 @@
  * - Stamps are fixed micro-shapes using ramp indices only.
  */
 
-/** Hand-picked global palette entries (shared across all materials). */
+/**
+ * Hand-picked global palette (≤48). Contrast pass:
+ * - Each ramp has a near-black deep step used for door voids, eave, canopy cores.
+ * - Hue segmentation: grass=green, dirt=orange-brown, stone=cool blue-grey,
+ *   marble/court=warm cream, roof=terracotta, water=cyan — adjacent classes
+ *   never share both hue family and value band.
+ * - Zone accents (higher sat): temple gold, market crimson, garden leaf, court teal.
+ */
 export const P = {
-  // grass 5 — cool shadow → warm highlight
-  g0: "#3a5248",
-  g1: "#4a6a40",
-  g2: "#5a8448",
-  g3: "#6a9a50",
-  g4: "#7ab058",
-  // dirt 4 — mid pair stays within ~15% L for quiet ground
-  d0: "#5a4838",
-  d1: "#8a7054",
-  d2: "#9a8060",
-  d3: "#b89870",
-  // stone 5 — mid pair close; extremes for objects/outlines
-  s0: "#3a4050",
-  s1: "#5a6070",
-  s2: "#8a909a",
-  s3: "#9aa0a8",
-  s4: "#b8bcc4",
-  // marble 5 — mid pair tight; m0/m4 for prop volume
-  m0: "#4a4860",
-  m1: "#7a7488",
-  m2: "#b8b0a4",
-  m3: "#c4bcb0",
-  m4: "#e0d8c4",
-  // sand 4
-  a0: "#7a6038",
-  a1: "#b09860",
-  a2: "#c0a868",
-  a3: "#d0bc80",
-  // water 5 — one step higher saturation (richer cyan-blue, less grey)
-  w0: "#1e3a62",
-  w1: "#2e5c92",
-  w2: "#4a8ec4",
-  w3: "#5aa0d0",
-  w4: "#78c0e8",
-  // rock 3 (share d0 for deep)
-  r1: "#686460",
-  r2: "#787068",
+  // grass 5 — cool deep → warm leaf (garden zone accent = g4)
+  g0: "#1a2e24",
+  g1: "#3a5248",
+  g2: "#4a6a40",
+  g3: "#5a8448",
+  g4: "#6ab050",
+  // dirt 4 — warm orange-brown (distinct from cool stone)
+  d0: "#2a1810",
+  d1: "#6a4830",
+  d2: "#9a7048",
+  d3: "#c49860",
+  // stone 5 — cool blue-grey path (value mid; not cream marble)
+  s0: "#1c2438",
+  s1: "#3a4860",
+  s2: "#6a7890",
+  s3: "#8a98a8",
+  s4: "#b0bcc8",
+  // marble / wall 5 — warm cream-violet (walls); court uses lighter cream
+  m0: "#2a2838",
+  m1: "#5a5470",
+  m2: "#a89888",
+  m3: "#d0c4b0",
+  m4: "#f0e8d4",
+  // sand 4 — yellow-ochre (coast zone)
+  a0: "#3a2810",
+  a1: "#8a6830",
+  a2: "#c0a050",
+  a3: "#e0c870",
+  // water 5 — saturated cyan-blue
+  w0: "#0a1838",
+  w1: "#1e4a8a",
+  w2: "#3a88c8",
+  w3: "#58b0e0",
+  w4: "#88d8f0",
+  // rock 3
+  r1: "#484440",
+  r2: "#686058",
   r3: "#888078",
-  // snow mid (light uses s4, shadow uses s2)
-  n1: "#d0d6dc",
-  // wood 3 — mid pair for floors; o0 for prop outlines
-  o0: "#3a2818",
-  o1: "#7a5c3c",
-  o2: "#8a6848",
-  // roof 3
-  f0: "#4a2018",
-  f1: "#6e3428",
-  f2: "#a05040",
-  // door 2
-  e0: "#2c1c10",
-  e1: "#5c3c24",
-  // canopy 3
-  c0: "#243828",
-  c1: "#345830",
-  c2: "#4a7840",
-  // accents + ink (wall ashlar uses m2/m3)
-  gold: "#c49848",
-  goldL: "#d8b468",
-  crimson: "#8e3c38",
-  crimsonD: "#5a2828",
-  ink: "#2a2438",
+  // snow mid
+  n1: "#e0e6ec",
+  // wood 3
+  o0: "#1a1008",
+  o1: "#6a4428",
+  o2: "#9a6840",
+  // roof terracotta 3 + deep eave
+  f0: "#180808",
+  f1: "#5a2018",
+  f2: "#b84830",
+  // door near-black void
+  e0: "#080408",
+  e1: "#3c2414",
+  // canopy / hedge deep interior
+  c0: "#081810",
+  c1: "#244828",
+  c2: "#3a7840",
+  // accents (high sat) + ink
+  gold: "#e0a838",
+  goldL: "#f0d060",
+  crimson: "#c03830",
+  crimsonD: "#681818",
+  ink: "#100c18",
 } as const;
+
+/** Court signature teal — alias of saturated water mid (stays ≤48 unique hex). */
+export const TEAL_ACCENT = "#3a88c8"; // = P.w2, court zone accent
 
 export type PalKey = keyof typeof P;
 
@@ -100,11 +110,12 @@ export const RAMPS = {
   dirt: [P.d0, P.d1, P.d2, P.d3] as const,
   stone: [P.s0, P.s1, P.s2, P.s3, P.s4] as const,
   marble: [P.m0, P.m1, P.m2, P.m3, P.m4] as const,
+  /** Court floor — warmer cream, higher value than wall mid. */
+  court: [P.m1, P.m2, P.m3, P.m4, P.goldL] as const, // goldL = highlight; zone accent via TEAL/w2 seams
   sand: [P.a0, P.a1, P.a2, P.a3] as const,
   water: [P.w0, P.w1, P.w2, P.w3, P.w4] as const,
   rock: [P.d0, P.r1, P.r2, P.r3] as const,
-  // snow: two close lights + one cool shadow for props/decals
-  snow: [P.s3, P.n1, P.s4] as const,
+  snow: [P.s2, P.n1, P.s4] as const,
   wood: [P.o0, P.o1, P.o2, P.d3] as const,
   roof: [P.f0, P.f1, P.f2, P.gold] as const,
   door: [P.e0, P.e1, P.o2] as const,
@@ -114,6 +125,34 @@ export const RAMPS = {
   gold: [P.crimsonD, P.gold, P.goldL] as const,
   crimson: [P.crimsonD, P.crimson, P.gold] as const,
   ink: [P.ink] as const,
+  teal: [P.w0, P.w2, P.w3] as const,
+} as const;
+
+/**
+ * Hue-family labels for adjacent-material separation gates.
+ * floor (dirt/stone path) ≠ wall (marble) ≠ court (court/marble court).
+ */
+export const MATERIAL_HUE_FAMILY = {
+  grass: "green",
+  dirt: "orange",
+  stone: "cool-grey",
+  marble: "warm-cream",
+  court: "warm-cream-light",
+  sand: "ochre",
+  water: "cyan",
+  rock: "neutral-brown",
+  roof: "terracotta",
+  wood: "brown",
+  canopy: "leaf",
+  door: "near-black",
+} as const;
+
+/** Zone → signature accent hex (raised saturation). */
+export const ZONE_ACCENT = {
+  temple: P.gold,
+  market: P.crimson,
+  garden: P.g4,
+  court: P.w2, // cyan-teal court/pool signature
 } as const;
 
 export type RampName = keyof typeof RAMPS;
@@ -125,6 +164,7 @@ export const PAL = {
   dirt: { deep: P.d0, dark: P.d1, base: P.d2, light: P.d3 },
   stone: { deep: P.s0, dark: P.s1, grout: P.s2, base: P.s3, light: P.s4 },
   marble: { deep: P.m0, dark: P.m1, vein: P.m2, base: P.m3, light: P.m4, cream: P.m3 },
+  court: { deep: P.m1, dark: P.m2, base: P.m3, light: P.m4, accent: P.goldL },
   sand: { deep: P.a0, dark: P.a1, base: P.a2, light: P.a3 },
   water: { deep: P.w0, dark: P.w1, base: P.w2, light: P.w3, pale: P.w4 },
   rock: { deep: P.d0, dark: P.r1, base: P.r2, light: P.r3 },
@@ -136,6 +176,7 @@ export const PAL = {
   goldL: P.goldL,
   crimson: P.crimson,
   crimsonD: P.crimsonD,
+  teal: P.w2,
   cwall: { deep: P.d0, dark: P.r1, mortar: P.d1, base: P.m2, light: P.m3 },
   trunk: { deep: P.o0, dark: P.o1, base: P.o2, light: P.d3 },
   canopy: { deep: P.c0, dark: P.c1, base: P.c2, light: P.g3, lush: P.g4 },

@@ -6,6 +6,24 @@ import { Tile } from "./tiles.js";
 import { TILE_SIZE } from "./constants.js";
 import { ySortDepth } from "./graphics-analysis.js";
 
+/**
+ * Roof / eave tiles lifted into Y-sorted sprites so mass occludes the player
+ * when standing "behind" (north of) the building footprint.
+ */
+export const ROOF_YSORT_TILES: ReadonlySet<number> = new Set([
+  Tile.H_ROOF_NW,
+  Tile.H_ROOF_N,
+  Tile.H_ROOF_NE,
+  Tile.H_ROOF_W,
+  Tile.H_ROOF_M,
+  Tile.H_ROOF_E,
+  Tile.H_ROOF_RIDGE,
+  Tile.H_EAVE_SHADOW,
+  Tile.T_PED_W,
+  Tile.T_PED_M,
+  Tile.T_PED_E,
+]);
+
 /** Deco tile that is the foot of a tall prop (base tile index). */
 export const TALL_PROP_BASES: ReadonlySet<number> = new Set([
   Tile.COLUMN_BASE,
@@ -13,6 +31,8 @@ export const TALL_PROP_BASES: ReadonlySet<number> = new Set([
   Tile.TREE_TRUNK,
   Tile.PILLAR, // 1-tile tall still gets sprite + shadow treatment
   Tile.T_COL_MID, // temple shaft base when used as freestanding foot
+  // Roof cells y-sort at their own foot so rooftops occlude correctly
+  ...ROOF_YSORT_TILES,
 ]);
 
 /**
@@ -39,6 +59,18 @@ export const TALL_PROP_STACK: Readonly<Record<number, readonly number[]>> = {
   [Tile.TREE_TRUNK]: [Tile.TREE_CANOPY, Tile.TREE_TRUNK],
   [Tile.PILLAR]: [Tile.PILLAR],
   [Tile.T_COL_MID]: [Tile.T_COL_TOP, Tile.T_COL_MID, Tile.T_COL_MID],
+  // Single-tile roof mass — each cell is its own y-sorted sprite
+  [Tile.H_ROOF_NW]: [Tile.H_ROOF_NW],
+  [Tile.H_ROOF_N]: [Tile.H_ROOF_N],
+  [Tile.H_ROOF_NE]: [Tile.H_ROOF_NE],
+  [Tile.H_ROOF_W]: [Tile.H_ROOF_W],
+  [Tile.H_ROOF_M]: [Tile.H_ROOF_M],
+  [Tile.H_ROOF_E]: [Tile.H_ROOF_E],
+  [Tile.H_ROOF_RIDGE]: [Tile.H_ROOF_RIDGE],
+  [Tile.H_EAVE_SHADOW]: [Tile.H_EAVE_SHADOW],
+  [Tile.T_PED_W]: [Tile.T_PED_W],
+  [Tile.T_PED_M]: [Tile.T_PED_M],
+  [Tile.T_PED_E]: [Tile.T_PED_E],
 };
 
 /** All overhead/mid tiles that belong to a tall prop stack (suppressed on flat layers). */

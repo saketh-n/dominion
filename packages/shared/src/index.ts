@@ -15,3 +15,4 @@ export * from "./creatures.js";
 export * from "./reconcile.js";
 export * from "./inventory.js";
 export * from "./menus.js";
+export * from "./art-pass.js";
