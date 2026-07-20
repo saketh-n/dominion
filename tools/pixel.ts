@@ -166,24 +166,44 @@ export function ditherVGradient(
 }
 
 /**
- * Solid hard-edged elliptical cast/contact shadow under an object footprint.
- * Single opaque palette value only — no dither soft edge field.
- * Light is NW → shadow bias SE (caller should offset cx/cy slightly SE of caster).
+ * Axis-aligned cast shadow: 1-tile-south hard rect, one palette value, hard edges.
+ * No diagonal / trapezoid / elliptical SE drop shadows.
+ *
+ * Legacy signature kept for call-site compatibility:
+ *   dropShadow(ctx, cx, cy, rx, ry)  → paints a south strip under the footprint
+ *   using width ≈ 2*rx centered on cx, at the south edge of the tile (y≈15).
+ * Prefer southCastShadow for new code.
  */
 export function dropShadow(
   ctx: Ctx,
   cx: number,
   cy: number,
   rx: number,
-  ry: number,
+  _ry?: number,
   color: string = STYLE.shadow
 ): void {
-  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
-    for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
-      const dx = (x + 0.5 - cx) / Math.max(0.5, rx);
-      const dy = (y + 0.5 - cy) / Math.max(0.5, ry);
-      if (dx * dx + dy * dy > 1) continue;
-      px(ctx, x, y, color);
+  const w = Math.max(2, Math.round(rx * 2));
+  const x0 = Math.round(cx - w / 2);
+  // Always 1-tile-south hard strip on the base tile bottom rows (axis-aligned).
+  const y = Math.min(15, Math.max(13, Math.round(cy)));
+  southCastShadow(ctx, x0, y, w, color);
+}
+
+/**
+ * Hard-edged axis-aligned south cast shadow strip (one value step).
+ * Occupies a 1–2px tall band on the base tile — reads as 1 tile south contact.
+ */
+export function southCastShadow(
+  ctx: Ctx,
+  x0: number,
+  y: number,
+  w: number,
+  color: string = STYLE.shadow
+): void {
+  for (let yy = y; yy <= Math.min(15, y + 1); yy++) {
+    for (let x = x0; x < x0 + w; x++) {
+      if (x < 0 || x > 15) continue;
+      px(ctx, x, yy, color);
     }
   }
 }
@@ -205,16 +225,16 @@ export function contactShadow(
 }
 
 /**
- * Elliptical contact shadow (preferred for props) — opaque palette only.
+ * Contact shadow — axis-aligned south strip (no ellipse / SE trapezoid).
  */
 export function ellipseContactShadow(
   ctx: Ctx,
   cx: number,
   cy: number,
   rx: number,
-  ry: number
+  _ry?: number
 ): void {
-  dropShadow(ctx, cx, cy, rx, ry, STYLE.contactAO);
+  dropShadow(ctx, cx, cy, rx, 1, STYLE.contactAO);
 }
 
 /**

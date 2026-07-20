@@ -127,10 +127,38 @@ export enum Tile {
   DECAL_GRAVEL = 85,
 
   /**
+   * Freestanding column mid-shaft (overhead / non-blocking).
+   * Split from T_COL_MID so wall-engaged temple shafts stay solid while
+   * plaza colonnade mid-shafts never sole-represent a blocking surface.
+   */
+  COLUMN_SHAFT = 86,
+
+  // --- placement-grammar props ---
+  PAINTING = 87, // wall-face only (deco on wall cell)
+  CRATE = 88, // solid; requires ortho wall neighbor
+  BENCH = 89, // solid; path-edge only
+  PLANTER = 90, // solid; path-edge only
+
+  /** Solid marble pool coping — water never 4-adjacent to raw floor. */
+  POOL_COPING = 91,
+
+  /**
+   * Sunken-court ledge/cliff face (highlight lip + dark base).
+   * Distinct from mountain CLIFF_FACE so court edges always show a ledge.
+   */
+  LEDGE_FACE = 92,
+
+  /**
+   * Raised-value marble court floor (one step lighter than base marble)
+   * so the sunken court is not the darkest field in frame.
+   */
+  MARBLE_COURT = 93,
+
+  /**
    * First index of terrain-pair blob transition sets.
    * Layout: TRANSITION_BASE + pairId * 48 + blobIndex (0..47).
    */
-  TRANSITION_BASE = 86,
+  TRANSITION_BASE = 94,
 
   /** Total tile slots = TRANSITION_BASE + pairs * 48 */
   COUNT = TRANSITION_BASE + TRANSITION_PAIR_COUNT * BLOB_TILE_COUNT,
@@ -148,11 +176,18 @@ function buildSolidTiles(): Set<number> {
     Tile.TREE_TRUNK,
     Tile.PILLAR,
     Tile.COLUMN_BASE,
+    // COLUMN_SHAFT is NOT solid — freestanding mid-shaft is overhead art only
     Tile.STATUE_BASE,
+    // Fountain solid = rim ring tiles only (the 2×2 spout/rim stamps)
     Tile.FOUNTAIN_NW,
     Tile.FOUNTAIN_NE,
     Tile.FOUNTAIN_SW,
     Tile.FOUNTAIN_SE,
+    Tile.CRATE,
+    Tile.BENCH,
+    Tile.PLANTER,
+    Tile.POOL_COPING,
+    Tile.LEDGE_FACE,
     Tile.H_ROOF_NW,
     Tile.H_ROOF_N,
     Tile.H_ROOF_NE,
@@ -252,6 +287,8 @@ export function tileToTerrainKind(t: number): TerrainKind | null {
     case Tile.MARBLE_FLOOR:
     case Tile.MARBLE_FLOOR2:
     case Tile.MARBLE_FLOOR3:
+    case Tile.MARBLE_COURT:
+    case Tile.POOL_COPING:
     case Tile.T_FLOOR:
     case Tile.T_STEPS:
     case Tile.RUG:
@@ -266,6 +303,7 @@ export function tileToTerrainKind(t: number): TerrainKind | null {
     case Tile.ROCK_GROUND3:
     case Tile.CLIFF_FACE:
     case Tile.CLIFF_TOP:
+    case Tile.LEDGE_FACE:
       return TerrainKind.ROCK;
     case Tile.SNOW:
     case Tile.SNOW2:
@@ -334,4 +372,7 @@ export const SHADOW_PROPS: readonly number[] = [
   Tile.TABLE,
   Tile.BED,
   Tile.TREE_CANOPY,
+  Tile.CRATE,
+  Tile.BENCH,
+  Tile.PLANTER,
 ];

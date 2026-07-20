@@ -28,7 +28,10 @@
     "test:props": "tsx packages/shared/src/props-shading.test.ts",
     "test:ysort": "tsx packages/shared/src/ysort.test.ts",
     "test:mapcomp": "tsx packages/shared/src/map-composition.test.ts",
-    "test:graphics": "pnpm test:resolution && pnpm test:palette && pnpm test:stamps && pnpm test:value && pnpm test:props && pnpm test:ysort && pnpm test:mapcomp",
+    "test:footprint": "tsx packages/shared/src/prop-stamps.test.ts",
+    "test:placement": "tsx packages/shared/src/placement.test.ts",
+    "test:plaza": "tsx packages/shared/src/plaza-art.test.ts",
+    "test:graphics": "pnpm test:resolution && pnpm test:palette && pnpm test:stamps && pnpm test:value && pnpm test:props && pnpm test:ysort && pnpm test:mapcomp && pnpm test:footprint && pnpm test:placement && pnpm test:plaza",
     "test:center": "tsx packages/shared/src/center-layout.test.ts"
   },
   "devDependencies": {

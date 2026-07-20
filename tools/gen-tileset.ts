@@ -9,7 +9,7 @@
  * - Terrain transitions: hard-edged border (1–2px light+dark band), no Bayer feather.
  * - Water: solid rim/coping + 1px foam + sparse wave stamps (no dot spray).
  * - Vertical gradients (lit top / dark base) only on walls/facades/columns.
- * - Props: solid hard-edged SE drop/contact shadows, selective outline, ≥3 ramp values.
+ * - Props: axis-aligned 1-tile-south hard cast shadows, selective outline, ≥3 ramp values.
  *
  * Output:
  *   apps/client/public/assets/tileset.png
@@ -44,6 +44,7 @@ import {
   STYLE,
   dropShadow,
   contactShadow,
+  southCastShadow,
   applySelectiveOutline,
   paintBlobTransition,
 } from "./pixel.js";
@@ -319,7 +320,7 @@ function flowers(ctx: Ctx, color: string, colorLight: string) {
 
 function bush(ctx: Ctx) {
   const C = PAL.canopy;
-  dropShadow(ctx, 9.5, 15.2, 5.5, 1.4);  // SE offset solid
+  dropShadow(ctx, 8, 14, 5.5);
   contactShadow(ctx, 3, 14, 10);
   // volume: lit top-left, mid front
   rect(ctx, 3, 4, 10, 9, C.base);
@@ -334,7 +335,7 @@ function bush(ctx: Ctx) {
 
 function boulder(ctx: Ctx) {
   const R = PAL.rock;
-  dropShadow(ctx, 9.5, 14.8, 5.5, 1.3);  // SE offset solid
+  dropShadow(ctx, 8, 14, 5.5);
   contactShadow(ctx, 3, 13, 10);
   // 3/4 rock volume
   rect(ctx, 3, 5, 10, 8, R.base);
@@ -348,7 +349,7 @@ function boulder(ctx: Ctx) {
 
 function treeTrunk(ctx: Ctx) {
   const Tr = PAL.trunk;
-  dropShadow(ctx, 9.5, 15.4, 4.5, 1.2);  // SE offset solid
+  dropShadow(ctx, 8, 14, 4.5);
   contactShadow(ctx, 2, 15, 12);
   rect(ctx, 5, 0, 6, 14, Tr.base);
   vline(ctx, 5, 0, 14, Tr.light);
@@ -379,29 +380,28 @@ function treeCanopy(ctx: Ctx) {
 // marble props — 3/4 volumes, outline, contact shadow, ≥3 ramp values
 // ---------------------------------------------------------------------------
 
+/**
+ * Single freestanding pillar: capital only at top rows, seamless shaft mid,
+ * base plinth only at bottom. No horizontal molding band through mid-shaft.
+ */
 function pillarSingle(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 10, 15.5, 6, 1.5);  // SE offset solid
-  contactShadow(ctx, 1, 15, 14);
-  // abacus top (lit)
+  dropShadow(ctx, 8, 14, 6); // 1-tile-south hard strip
+  contactShadow(ctx, 2, 15, 12);
+  // capital (top only)
   rect(ctx, 2, 0, 12, 2, M.light);
   hline(ctx, 2, 0, 12, M.deep);
   hline(ctx, 2, 1, 12, PAL.goldL);
-  // neck
-  rect(ctx, 3, 2, 10, 2, M.base);
-  hline(ctx, 3, 2, 10, M.light);
-  hline(ctx, 3, 3, 10, M.dark);
-  // shaft — left lit, right shadow (top-left light)
-  rect(ctx, 4, 4, 8, 8, M.base);
-  vline(ctx, 4, 4, 8, M.light);
-  vline(ctx, 5, 4, 8, M.light);
-  vline(ctx, 7, 4, 8, M.vein);
-  vline(ctx, 9, 4, 8, M.dark);
-  vline(ctx, 10, 4, 8, M.deep);
-  vline(ctx, 11, 4, 8, M.deep);
-  hline(ctx, 4, 4, 8, M.dark);
-  hline(ctx, 4, 11, 8, M.vein);
-  // base plinth
+  rect(ctx, 3, 2, 10, 1, M.base);
+  // seamless shaft — vertical flutes only, no horizontal molding
+  rect(ctx, 4, 3, 8, 9, M.base);
+  vline(ctx, 4, 3, 9, M.light);
+  vline(ctx, 5, 3, 9, M.light);
+  vline(ctx, 7, 3, 9, M.vein);
+  vline(ctx, 9, 3, 9, M.dark);
+  vline(ctx, 10, 3, 9, M.deep);
+  vline(ctx, 11, 3, 9, M.deep);
+  // base plinth (bottom only)
   rect(ctx, 3, 12, 10, 1, M.base);
   hline(ctx, 3, 12, 10, M.light);
   rect(ctx, 2, 13, 12, 2, M.cream);
@@ -412,34 +412,73 @@ function pillarSingle(ctx: Ctx) {
   applySelectiveOutline(ctx, T, M.deep);
 }
 
+/**
+ * Column base tile: plinth + lower shaft only. No capital. Full tile width solid.
+ * Shaft continues seamless into COLUMN_SHAFT above (no horizontal molding).
+ * Base plinth fills the solid tile's full width (edge-to-edge).
+ */
 function columnBase(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 9.5, 15.5, 5.5, 1.4);  // SE offset solid
-  contactShadow(ctx, 2, 15, 12);
-  rect(ctx, 5, 0, 6, 11, M.base);
+  // lower shaft — seamless with mid-shaft above
+  rect(ctx, 4, 0, 8, 11, M.base);
+  vline(ctx, 4, 0, 11, M.light);
   vline(ctx, 5, 0, 11, M.light);
   vline(ctx, 7, 0, 11, M.vein);
   vline(ctx, 9, 0, 11, M.dark);
   vline(ctx, 10, 0, 11, M.deep);
-  rect(ctx, 4, 11, 8, 2, M.base);
-  hline(ctx, 4, 11, 8, M.light);
-  rect(ctx, 3, 13, 10, 2, M.base);
-  hline(ctx, 3, 13, 10, M.vein);
-  hline(ctx, 3, 14, 10, M.deep);
+  vline(ctx, 11, 0, 11, M.deep);
+  // base plinth fills full tile width (solid footprint art edge-to-edge)
+  // leave y=14..15 for south cast shadow strip
+  rect(ctx, 1, 11, 14, 1, M.base);
+  hline(ctx, 1, 11, 14, M.light);
+  rect(ctx, 0, 12, 16, 2, M.base);
+  hline(ctx, 0, 12, 16, M.vein);
+  hline(ctx, 0, 13, 16, M.deep);
+  vline(ctx, 0, 12, 2, M.deep);
+  vline(ctx, 15, 12, 2, M.deep);
+  // 1-tile-south hard shadow AFTER plinth so it is not overwritten
+  dropShadow(ctx, 8, 14, 7);
+  contactShadow(ctx, 0, 15, 16);
   applySelectiveOutline(ctx, T, M.deep);
 }
 
+/**
+ * Seamless mid-shaft tile — vertical flutes only, NO horizontal molding bands.
+ * Used as freestanding overhead art (COLUMN_SHAFT); non-blocking.
+ */
+function columnShaft(ctx: Ctx) {
+  const M = PAL.marble;
+  rect(ctx, 4, 0, 8, T, M.base);
+  vline(ctx, 4, 0, T, M.light);
+  vline(ctx, 5, 0, T, M.light);
+  vline(ctx, 7, 0, T, M.vein);
+  vline(ctx, 9, 0, T, M.dark);
+  vline(ctx, 10, 0, T, M.deep);
+  vline(ctx, 11, 0, T, M.deep);
+  vline(ctx, 3, 0, T, M.deep);
+  vline(ctx, 12, 0, T, M.deep);
+  applySelectiveOutline(ctx, T, M.deep);
+}
+
+/**
+ * Column capital only — abacus + neck at top of stack. No base plinth.
+ */
 function columnTop(ctx: Ctx) {
   const M = PAL.marble;
-  rect(ctx, 3, 9, 10, 2, M.light);
-  hline(ctx, 3, 8, 10, M.deep);
-  hline(ctx, 3, 10, 10, M.vein);
-  rect(ctx, 4, 11, 8, 2, M.base);
-  hline(ctx, 4, 12, 8, M.dark);
-  rect(ctx, 5, 13, 6, 3, M.base);
-  vline(ctx, 5, 13, 3, M.light);
-  vline(ctx, 9, 13, 3, M.dark);
-  vline(ctx, 10, 13, 3, M.deep);
+  // abacus / capital (top of tile)
+  rect(ctx, 2, 0, 12, 2, M.light);
+  hline(ctx, 2, 0, 12, M.deep);
+  hline(ctx, 2, 1, 12, PAL.goldL);
+  rect(ctx, 3, 2, 10, 2, M.base);
+  hline(ctx, 3, 3, 10, M.dark);
+  // short neck into shaft (no mid molding bands)
+  rect(ctx, 4, 4, 8, T - 4, M.base);
+  vline(ctx, 4, 4, T - 4, M.light);
+  vline(ctx, 5, 4, T - 4, M.light);
+  vline(ctx, 7, 4, T - 4, M.vein);
+  vline(ctx, 9, 4, T - 4, M.dark);
+  vline(ctx, 10, 4, T - 4, M.deep);
+  vline(ctx, 11, 4, T - 4, M.deep);
   applySelectiveOutline(ctx, T, M.deep);
 }
 
@@ -485,7 +524,7 @@ function statueTop(ctx: Ctx) {
 
 function statueBase(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 9.5, 15.2, 6.5, 1.5);  // SE offset solid
+  dropShadow(ctx, 8, 14, 6.5);
   contactShadow(ctx, 1, 14, 14);
   rect(ctx, 3, 0, 10, 3, M.base);
   hline(ctx, 3, 0, 10, M.light);
@@ -510,39 +549,74 @@ function statueBase(ctx: Ctx) {
   applySelectiveOutline(ctx, T, M.deep);
 }
 
+/**
+ * Fountain 2×2 assembly: solid rim ring fills each 16×16 tile edge-to-edge.
+ * Rim art flush to tile edges so solid footprint has non-empty ground art
+ * filling the solid tile width. Interior basin water + center spout.
+ */
 function paintFountain(fctx: Ctx) {
   const M = PAL.marble;
   const W = PAL.water;
-  const cx = 16;
-  const cy = 16;
-  dropShadow(fctx, 18, 29, 12, 3.0);  // SE offset solid
-  contactShadow(fctx, 4, 29, 24);
+  // 1-tile-south hard shadow under the whole 2×2
+  southCastShadow(fctx, 2, 30, 28);
+  contactShadow(fctx, 2, 31, 28);
+  // Full-tile rim fills each quadrant edge-flush (solid = rim ring only)
+  // Outer rim ring: 3px marble on all four outer edges of the 32×32
   for (let y = 0; y < 32; y++) {
     for (let x = 0; x < 32; x++) {
-      const d = Math.sqrt((x - cx + 0.5) ** 2 + (y - cy + 0.5) ** 2);
-      if (d < 15.2) {
-        if (d > 12.2) {
-          const lit = y < 15 && x < 18;
-          if (d > 14.4) px(fctx, x, y, M.deep);
-          else if (d > 13.4) px(fctx, x, y, lit ? M.light : M.dark);
-          else px(fctx, x, y, lit ? M.light : M.base);
-        } else if (d > 10.5) {
-          px(fctx, x, y, d > 11.5 ? W.dark : W.base);
-        } else {
-          px(fctx, x, y, d < 5 ? W.light : W.base);
-        }
+      const onOuter =
+        x < 3 || x >= 29 || y < 3 || y >= 29 ||
+        // inner ring around basin (rim thickness)
+        (x >= 3 && x < 29 && y >= 3 && y < 29 && (x < 5 || x >= 27 || y < 5 || y >= 27));
+      const inBasin = x >= 5 && x < 27 && y >= 5 && y < 27;
+      if (onOuter && !inBasin) {
+        const lit = y < 16 && x < 18;
+        const edge = x === 0 || x === 31 || y === 0 || y === 31;
+        const deepEdge = x === 1 || x === 30 || y === 30;
+        if (edge) px(fctx, x, y, M.deep);
+        else if (deepEdge) px(fctx, x, y, lit ? M.dark : M.deep);
+        else px(fctx, x, y, lit ? M.light : M.base);
+      } else if (inBasin) {
+        const cx = 16;
+        const cy = 16;
+        const d = Math.sqrt((x - cx + 0.5) ** 2 + (y - cy + 0.5) ** 2);
+        px(fctx, x, y, d < 5 ? W.light : d < 9 ? W.base : W.dark);
       }
     }
   }
-  for (const rad of [9.2, 6.5, 4.0]) {
+  // Ensure each 16×16 quadrant has full-width rim at its outer edges (flush)
+  for (const [ox, oy] of [
+    [0, 0],
+    [16, 0],
+    [0, 16],
+    [16, 16],
+  ] as const) {
+    // top/bottom flush bands
+    for (let x = 0; x < 16; x++) {
+      px(fctx, ox + x, oy, M.deep);
+      px(fctx, ox + x, oy + 1, M.light);
+      px(fctx, ox + x, oy + 15, M.deep);
+      px(fctx, ox + x, oy + 14, M.dark);
+    }
+    // left/right flush bands
+    for (let y = 0; y < 16; y++) {
+      px(fctx, ox, oy + y, M.deep);
+      px(fctx, ox + 1, oy + y, M.light);
+      px(fctx, ox + 15, oy + y, M.deep);
+      px(fctx, ox + 14, oy + y, M.dark);
+    }
+  }
+  // foam ring
+  for (const rad of [9.2, 6.5]) {
     for (let a = 0; a < 48; a++) {
       if (a % 3 === 0) continue;
       const ang = (a / 48) * Math.PI * 2;
-      const x = Math.round(cx + Math.cos(ang) * rad - 0.5);
-      const y = Math.round(cy + Math.sin(ang) * rad - 0.5);
-      px(fctx, x, y, a % 2 === 0 ? W.pale : W.light);
+      const x = Math.round(16 + Math.cos(ang) * rad - 0.5);
+      const y = Math.round(16 + Math.sin(ang) * rad - 0.5);
+      if (x >= 5 && x < 27 && y >= 5 && y < 27) px(fctx, x, y, a % 2 === 0 ? W.pale : W.light);
     }
   }
+  // center spout pedestal (still inside basin — not extra solid cells)
   rect(fctx, 12, 13, 8, 6, M.base);
   hline(fctx, 12, 13, 8, M.light);
   hline(fctx, 12, 18, 8, M.deep);
@@ -836,8 +910,10 @@ function flutedShaft(ctx: Ctx, fromY: number) {
   vline(ctx, 12, fromY, T - fromY, M.deep);
 }
 
+/** Wall-engaged temple shaft — seamless vertical flutes, no horizontal molding. */
 function templeColMid(ctx: Ctx) {
   flutedShaft(ctx, 0);
+  // ensure no mid-tile horizontal molding band
   applySelectiveOutline(ctx, T, PAL.marble.deep);
 }
 
@@ -992,11 +1068,142 @@ function cliffFace(ctx: Ctx, seed: number) {
   hline(ctx, 0, 15, T, R.deep);
 }
 
+/**
+ * Sunken-court ledge face: highlight lip on top edge, dark base band.
+ * Rings every elevation boundary of the court.
+ */
+function ledgeFace(ctx: Ctx) {
+  const R = PAL.rock;
+  const M = PAL.marble;
+  // dark base field
+  rect(ctx, 0, 0, T, T, R.dark);
+  rect(ctx, 0, 4, T, 8, R.base);
+  // highlight lip (top)
+  hline(ctx, 0, 0, T, M.light);
+  hline(ctx, 0, 1, T, M.base);
+  hline(ctx, 0, 2, T, R.light);
+  // vertical face striations
+  for (const cx of [2, 6, 10, 14]) {
+    vline(ctx, cx, 3, 10, R.deep);
+  }
+  // dark base
+  hline(ctx, 0, 13, T, R.deep);
+  hline(ctx, 0, 14, T, R.deep);
+  hline(ctx, 0, 15, T, P.ink);
+}
+
 function cliffTop(ctx: Ctx, seed: number) {
   rockGround(ctx, seed);
   const R = PAL.rock;
   hline(ctx, 0, T - 2, T, R.light);
   hline(ctx, 0, T - 1, T, R.deep);
+}
+
+/** Raised one-step marble court floor (lighter than base marble field). */
+function marbleCourtFloor(ctx: Ctx) {
+  const M = PAL.marble;
+  // one value step up from base marble fill
+  rect(ctx, 0, 0, T, T, M.light);
+  paintSlabSeamsFromRamp(ctx, [M.base, M.light, M.cream, M.light, M.base]);
+  // quiet vein accents
+  px(ctx, 4, 5, M.vein);
+  px(ctx, 11, 9, M.vein);
+  px(ctx, 7, 12, M.base);
+}
+
+/**
+ * Solid marble pool coping — full tile, no 45° water-corner transitions.
+ * Water cells must only neighbor coping or water, never raw floor.
+ */
+function poolCoping(ctx: Ctx) {
+  const M = PAL.marble;
+  rect(ctx, 0, 0, T, T, M.base);
+  hline(ctx, 0, 0, T, M.light);
+  hline(ctx, 0, 1, T, M.light);
+  hline(ctx, 0, 2, T, M.vein);
+  // inner foam edge toward water (south-biased read)
+  hline(ctx, 0, 13, T, M.dark);
+  hline(ctx, 0, 14, T, M.deep);
+  hline(ctx, 0, 15, T, M.deep);
+  vline(ctx, 0, 0, T, M.light);
+  vline(ctx, T - 1, 0, T, M.dark);
+  // subtle top face
+  rect(ctx, 2, 4, 12, 6, M.cream);
+  hline(ctx, 2, 4, 12, M.light);
+  hline(ctx, 2, 9, 12, M.vein);
+}
+
+function paintingTile(ctx: Ctx) {
+  const M = PAL.marble;
+  // frame on wall
+  rect(ctx, 2, 2, 12, 12, M.deep);
+  rect(ctx, 3, 3, 10, 10, PAL.crimsonD);
+  rect(ctx, 4, 4, 8, 8, PAL.crimson);
+  hline(ctx, 4, 4, 8, PAL.gold);
+  hline(ctx, 4, 11, 8, PAL.gold);
+  vline(ctx, 4, 4, 8, PAL.gold);
+  vline(ctx, 11, 4, 8, PAL.gold);
+  px(ctx, 7, 7, PAL.goldL);
+  px(ctx, 8, 8, PAL.gold);
+  applySelectiveOutline(ctx, T, M.deep);
+}
+
+function crateTile(ctx: Ctx) {
+  const W = PAL.wood;
+  dropShadow(ctx, 8, 14, 6);
+  contactShadow(ctx, 2, 15, 12);
+  rect(ctx, 2, 4, 12, 10, W.base);
+  hline(ctx, 2, 4, 12, W.light);
+  hline(ctx, 2, 13, 12, W.deep);
+  vline(ctx, 2, 4, 10, W.light);
+  vline(ctx, 13, 4, 10, W.deep);
+  // planks
+  hline(ctx, 3, 7, 10, W.dark);
+  hline(ctx, 3, 10, 10, W.dark);
+  vline(ctx, 7, 5, 8, W.dark);
+  // metal band
+  hline(ctx, 2, 6, 12, P.s2);
+  hline(ctx, 2, 11, 12, P.s2);
+  applySelectiveOutline(ctx, T, W.deep);
+}
+
+function benchTile(ctx: Ctx) {
+  const W = PAL.wood;
+  const M = PAL.marble;
+  dropShadow(ctx, 8, 14, 7);
+  contactShadow(ctx, 1, 15, 14);
+  // seat
+  rect(ctx, 1, 7, 14, 3, W.base);
+  hline(ctx, 1, 7, 14, W.light);
+  hline(ctx, 1, 9, 14, W.deep);
+  // legs
+  rect(ctx, 2, 10, 2, 5, W.dark);
+  rect(ctx, 12, 10, 2, 5, W.dark);
+  // backrest
+  rect(ctx, 1, 3, 14, 4, W.base);
+  hline(ctx, 1, 3, 14, M.light);
+  hline(ctx, 1, 6, 14, W.dark);
+  applySelectiveOutline(ctx, T, W.deep);
+}
+
+function planterTile(ctx: Ctx) {
+  const M = PAL.marble;
+  const C = PAL.canopy;
+  dropShadow(ctx, 8, 14, 5);
+  contactShadow(ctx, 3, 15, 10);
+  // pot
+  rect(ctx, 3, 7, 10, 7, M.base);
+  hline(ctx, 3, 7, 10, M.light);
+  hline(ctx, 3, 13, 10, M.deep);
+  vline(ctx, 3, 7, 7, M.light);
+  vline(ctx, 12, 7, 7, M.dark);
+  rect(ctx, 4, 14, 8, 1, M.deep);
+  // greenery
+  rect(ctx, 5, 2, 6, 6, C.base);
+  rect(ctx, 6, 1, 4, 3, C.light);
+  rect(ctx, 4, 4, 3, 3, C.dark);
+  px(ctx, 10, 3, C.lush);
+  applySelectiveOutline(ctx, T, M.deep);
 }
 
 function interiorWall(ctx: Ctx) {
@@ -1033,7 +1240,7 @@ function rug(ctx: Ctx) {
 
 function table(ctx: Ctx) {
   const W = PAL.wood;
-  dropShadow(ctx, 9.5, 14.8, 6, 1.3);  // SE offset solid
+  dropShadow(ctx, 8, 14, 6);
   contactShadow(ctx, 2, 14, 12);
   // top face lit
   rect(ctx, 2, 4, 12, 4, W.light);
@@ -1052,7 +1259,7 @@ function table(ctx: Ctx) {
 
 function amphora(ctx: Ctx) {
   const M = PAL.marble;
-  dropShadow(ctx, 9.5, 15.2, 4.5, 1.2);  // SE offset solid
+  dropShadow(ctx, 8, 14, 4.5);
   contactShadow(ctx, 4, 14, 8);
   // body volume
   rect(ctx, 5, 4, 6, 8, M.base);
@@ -1078,7 +1285,7 @@ function amphora(ctx: Ctx) {
 
 function bed(ctx: Ctx) {
   const W = PAL.wood;
-  dropShadow(ctx, 9.5, 14.8, 6, 1.2);  // SE offset solid
+  dropShadow(ctx, 8, 14, 6);
   contactShadow(ctx, 1, 14, 14);
   rect(ctx, 1, 6, 14, 7, W.base);
   rect(ctx, 2, 5, 12, 3, W.light); // top blanket
@@ -1096,7 +1303,7 @@ function Mlight() {
 }
 
 function banner(ctx: Ctx) {
-  dropShadow(ctx, 9.5, 14.8, 3.5, 1.1);  // SE offset solid
+  dropShadow(ctx, 8, 14, 3.5);
   // pole
   vline(ctx, 7, 0, 4, PAL.wood.dark);
   vline(ctx, 8, 0, 4, PAL.wood.base);
@@ -1186,6 +1393,7 @@ function main() {
   paint(Tile.PILLAR, (c) => pillarSingle(c), false);
   paint(Tile.COLUMN_BASE, (c) => columnBase(c), false);
   paint(Tile.STATUE_BASE, (c) => statueBase(c), false);
+  paint(Tile.COLUMN_SHAFT, (c) => columnShaft(c), false);
 
   blit(Tile.FOUNTAIN_NW, fountain.canvas, 0, 0);
   blit(Tile.FOUNTAIN_NE, fountain.canvas, 16, 0);
@@ -1227,6 +1435,7 @@ function main() {
 
   paint(Tile.CLIFF_FACE, (c) => cliffFace(c, 151));
   paint(Tile.CLIFF_TOP, (c) => cliffTop(c, 161));
+  paint(Tile.LEDGE_FACE, (c) => ledgeFace(c));
 
   paint(Tile.I_WALL, (c) => interiorWall(c));
   paint(Tile.RUG, (c) => rug(c));
@@ -1244,6 +1453,13 @@ function main() {
   paint(Tile.DECAL_SHELL, (c) => decalShell(c, 1008), false);
   paint(Tile.DECAL_MOSS, (c) => decalMoss(c, 1009), false);
   paint(Tile.DECAL_GRAVEL, (c) => decalGravel(c, 1010), false);
+
+  paint(Tile.PAINTING, (c) => paintingTile(c), false);
+  paint(Tile.CRATE, (c) => crateTile(c), false);
+  paint(Tile.BENCH, (c) => benchTile(c), false);
+  paint(Tile.PLANTER, (c) => planterTile(c), false);
+  paint(Tile.POOL_COPING, (c) => poolCoping(c));
+  paint(Tile.MARBLE_COURT, (c) => marbleCourtFloor(c));
 
   // blob transitions
   for (let pairId = 0; pairId < TRANSITION_PAIR_COUNT; pairId++) {
@@ -1266,7 +1482,7 @@ function main() {
 
   // contact sheet of first 86 base tiles
   const sampleIds: number[] = [];
-  for (let id = 0; id < Math.min(86, Tile.COUNT); id++) sampleIds.push(id);
+  for (let id = 0; id < Math.min(Tile.TRANSITION_BASE, Tile.COUNT); id++) sampleIds.push(id);
   const sc = 4;
   const perRow = 10;
   const sheetRows = Math.ceil(sampleIds.length / perRow);

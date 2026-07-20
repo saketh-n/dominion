@@ -34,6 +34,34 @@ import {
   isWaterTile,
   tileToTerrainKind,
   TERRAIN_BASE_VARIANTS,
+  applyPropStamp,
+  mergeLayerScanCollision,
+  STAMP_COLUMN_3,
+  STAMP_STATUE,
+  STAMP_TREE,
+  STAMP_FOUNTAIN_2X2,
+  STAMP_PILLAR,
+  STAMP_CRATE,
+  STAMP_BENCH,
+  STAMP_PLANTER,
+  STAMP_AMPHORA,
+  STAMP_BUSH,
+  STAMP_TABLE,
+  STAMP_PAINTING,
+  STAMP_BANNER,
+  type StampLayers,
+  type PropStampDef,
+  canPlacePainting,
+  canPlaceCrate,
+  canPlaceStatue,
+  canPlaceBanner,
+  canPlaceBenchOrPlanter,
+  crateScore,
+  mirrorAcrossAxis,
+  makeZoneBudget,
+  tryConsumeBudget,
+  type ZoneBudget,
+  type LayerView,
 } from "../packages/shared/src/index.js";
 import { rng } from "./pixel.js";
 
@@ -45,8 +73,29 @@ const ground = new Uint16Array(W * H);
 const deco = new Uint16Array(W * H);
 const overhead = new Uint16Array(W * H);
 const encounter = new Uint8Array(W * H);
+/** Collision bits written primarily from stamp footprints. */
+const collision = new Uint8Array(W * H);
+
+const stampLayers: StampLayers = {
+  width: W,
+  height: H,
+  ground,
+  deco,
+  overhead,
+  collision,
+};
+
+function placeStamp(stamp: PropStampDef, x: number, y: number, overwrite = false): boolean {
+  const res = applyPropStamp(stampLayers, stamp, x, y, { overwrite });
+  return res.ok;
+}
 
 const r = rng(WORLD_SEED);
+
+/** Plaza axis + zone constants (shared with placement grammar). */
+const PLAZA_AXIS_X = 511;
+const PLAZA_ENTRANCE_YS = [489, 532] as const; // temple steps / south entrance
+const PLAZA_FLANK_OFFSET = 13;
 
 // ---------------------------------------------------------------------------
 // value noise
@@ -174,11 +223,14 @@ function bakeAutotileGround(x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1) {
     for (let x = x0; x <= x1; x++) {
       const i = idx(x, y, W);
       const self = terrain[i] as TerrainKind;
-      // Preserve special stamped tiles (cliffs, wood floors, rugs, temple steps)
+      // Preserve special stamped tiles (cliffs, ledges, coping, court, wood, rugs, steps)
       const prev = ground[i];
       if (
         prev === Tile.CLIFF_FACE ||
         prev === Tile.CLIFF_TOP ||
+        prev === Tile.LEDGE_FACE ||
+        prev === Tile.POOL_COPING ||
+        prev === Tile.MARBLE_COURT ||
         prev === Tile.FLOOR_WOOD ||
         prev === Tile.RUG ||
         prev === Tile.T_STEPS ||
@@ -569,16 +621,12 @@ function stampTemple(cx: number, topY: number, width: number) {
 // Wider multi-tile temple massing for ≥40% vertical structure in approach frame
 stampTemple(511, PY0 + 3, 23);
 
-/** Place a 3-tile-tall y-sorted plaza column: top + mid overhead, base deco. */
+/** Place a 3-tile-tall y-sorted plaza column via stamp footprint (solid base only). */
 function stampCol3(x: number, y: number): boolean {
   const i = idx(x, y, W);
   if (deco[i] !== 0) return false;
   if (terrain[i] === TerrainKind.WATER) return false;
-  deco[i] = Tile.COLUMN_BASE;
-  // mid shaft one tile north; capital two tiles north
-  if (y - 1 >= 0) overhead[idx(x, y - 1, W)] = Tile.T_COL_MID;
-  if (y - 2 >= 0) overhead[idx(x, y - 2, W)] = Tile.COLUMN_TOP;
-  return true;
+  return placeStamp(STAMP_COLUMN_3, x, y, false);
 }
 
 // secondary side shrines (smaller temples) on E/W plaza terraces + south exedra
@@ -605,46 +653,53 @@ stampShrine(537, PY1 - 14);
 // south exedra (small shrine facing north into plaza)
 stampShrine(511, PY1 - 12);
 
-// === GRAND FOUNTAIN COMPLEX (8×8 basin — mood-ref dolphin-scale mass) ===
-// Outer water pool, thick marble rim, 2×2 spout tiles at center.
-for (let y = 514; y <= 523; y++) {
-  for (let x = 507; x <= 516; x++) {
-    const dx = x - FCX;
-    const dy = y - FCY;
-    // circular basin radius ~5 tiles
-    if (dx * dx + dy * dy > 28) continue;
+// === GRAND FOUNTAIN COMPLEX — solid marble coping ring, no 45° water corners ===
+// Water never 4-adjacent to raw floor: every water cell is ringed by POOL_COPING.
+// Basin is an axis-aligned rectangle (no diagonal water-corner transitions).
+const POOL_X0 = 508;
+const POOL_Y0 = 515;
+const POOL_X1 = 515;
+const POOL_Y1 = 522;
+// Outer coping ring (1 tile thick) around the water rectangle
+for (let y = POOL_Y0 - 1; y <= POOL_Y1 + 1; y++) {
+  for (let x = POOL_X0 - 1; x <= POOL_X1 + 1; x++) {
     const i = idx(x, y, W);
-    const r2 = dx * dx + dy * dy;
-    if (r2 >= 20) {
-      terrain[i] = TerrainKind.MARBLE;
-      deco[i] = 0;
-    } else {
+    const onRing =
+      x === POOL_X0 - 1 ||
+      x === POOL_X1 + 1 ||
+      y === POOL_Y0 - 1 ||
+      y === POOL_Y1 + 1;
+    const inWater = x >= POOL_X0 && x <= POOL_X1 && y >= POOL_Y0 && y <= POOL_Y1;
+    if (inWater) {
       terrain[i] = TerrainKind.WATER;
+      ground[i] = Tile.WATER;
       deco[i] = 0;
+    } else if (onRing) {
+      terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.POOL_COPING;
+      deco[i] = 0;
+      collision[i] = 1; // coping is solid walk-block rim
     }
     encounter[i] = 0;
   }
 }
-// central spout (2×2 fountain tiles sit on water)
-deco[idx(511, 518, W)] = Tile.FOUNTAIN_NW;
-deco[idx(512, 518, W)] = Tile.FOUNTAIN_NE;
-deco[idx(511, 519, W)] = Tile.FOUNTAIN_SW;
-deco[idx(512, 519, W)] = Tile.FOUNTAIN_SE;
-// wide marble apron ring around basin (walkable court)
+// Raised marble court apron (walkable) outside coping — uses MARBLE_COURT (one value step up)
 for (let y = 510; y <= 527; y++) {
   for (let x = 503; x <= 520; x++) {
+    const i = idx(x, y, W);
+    if (terrain[i] === TerrainKind.WATER) continue;
+    if (ground[i] === Tile.POOL_COPING) continue;
     const dx = x - FCX;
     const dy = y - FCY;
     const r2 = dx * dx + dy * dy;
-    if (r2 > 28 && r2 <= 55) {
-      const i = idx(x, y, W);
-      if (terrain[i] === TerrainKind.WATER) continue;
+    if (r2 <= 55) {
       terrain[i] = TerrainKind.MARBLE;
+      ground[i] = Tile.MARBLE_COURT;
       deco[i] = 0;
     }
   }
 }
-// walkable marble bridge spokes into fountain rim (N/S/E/W) — keep avenues open
+// walkable marble bridge spokes into coping (N/S/E/W) — keep avenues open
 for (let t = 0; t < 4; t++) {
   for (const [bx, by] of [
     [511, 512 - t],
@@ -658,10 +713,14 @@ for (let t = 0; t < 4; t++) {
   ]) {
     const i = idx(bx, by, W);
     if (terrain[i] === TerrainKind.WATER) continue;
+    if (ground[i] === Tile.POOL_COPING) continue;
     terrain[i] = TerrainKind.MARBLE;
+    ground[i] = Tile.MARBLE_COURT;
     deco[i] = 0;
   }
 }
+// central spout (2×2 fountain rim stamps) — solid = rim tiles via stamp footprint
+placeStamp(STAMP_FOUNTAIN_2X2, 511, 518, true);
 
 // Colonnade ring around fountain — 3-tile-tall y-sorted columns
 for (const [cx2, cy2] of [
@@ -693,87 +752,99 @@ for (const [cx2, cy2] of [
   stampCol3(cx2, cy2);
 }
 
-// Pool terrace elevation: ledge/cliff ring + stairs on the four cardinals
-// Raised marble terrace edge just outside the apron (r2 ~55–70)
-for (let y = 508; y <= 529; y++) {
-  for (let x = 501; x <= 522; x++) {
-    const dx = x - FCX;
-    const dy = y - FCY;
-    const r2 = dx * dx + dy * dy;
-    if (r2 < 55 || r2 > 72) continue;
+// Sunken court elevation: ring EVERY elevation edge with 1-tile LEDGE_FACE
+// (highlight lip + dark base). Court interior uses MARBLE_COURT (raised value).
+const COURT_X0 = 503;
+const COURT_Y0 = 510;
+const COURT_X1 = 520;
+const COURT_Y1 = 527;
+// Raise court floor one value step (not the darkest field in frame)
+for (let y = COURT_Y0; y <= COURT_Y1; y++) {
+  for (let x = COURT_X0; x <= COURT_X1; x++) {
     const i = idx(x, y, W);
     if (terrain[i] === TerrainKind.WATER) continue;
-    // south-facing faces get cliff face; tops get cliff top
-    const southOpen = terrain[idx(x, y + 1, W)] !== TerrainKind.WATER && (dy > 0 || Math.abs(dx) > Math.abs(dy));
-    if (dy >= 2 && Math.abs(dx) <= Math.abs(dy) + 1) {
-      ground[i] = Tile.CLIFF_FACE;
-      terrain[i] = TerrainKind.ROCK;
-      deco[i] = 0;
-    } else if (r2 <= 62) {
-      ground[i] = Tile.CLIFF_TOP;
-      terrain[i] = TerrainKind.ROCK;
-      deco[i] = 0;
+    if (ground[i] === Tile.POOL_COPING) continue;
+    if (terrain[i] === TerrainKind.MARBLE || ground[i] === Tile.MARBLE_FLOOR || ground[i] === 0) {
+      terrain[i] = TerrainKind.MARBLE;
+      if (ground[i] !== Tile.POOL_COPING && ground[i] !== Tile.T_STEPS) {
+        ground[i] = Tile.MARBLE_COURT;
+      }
     }
-    void southOpen;
+  }
+}
+// Ledge ring on the outer perimeter of the sunken court (every elevation boundary cell)
+for (let y = COURT_Y0 - 1; y <= COURT_Y1 + 1; y++) {
+  for (let x = COURT_X0 - 1; x <= COURT_X1 + 1; x++) {
+    const onRing =
+      x === COURT_X0 - 1 ||
+      x === COURT_X1 + 1 ||
+      y === COURT_Y0 - 1 ||
+      y === COURT_Y1 + 1;
+    if (!onRing) continue;
+    const i = idx(x, y, W);
+    if (terrain[i] === TerrainKind.WATER) continue;
+    if (ground[i] === Tile.POOL_COPING) continue;
+    // skip processional avenue gaps (stairs go there)
+    const onNS = x >= 510 && x <= 513;
+    const onEW = y >= 517 && y <= 520;
+    if ((onNS && (y === COURT_Y0 - 1 || y === COURT_Y1 + 1)) || (onEW && (x === COURT_X0 - 1 || x === COURT_X1 + 1))) {
+      continue; // stairs cut through
+    }
+    ground[i] = Tile.LEDGE_FACE;
+    terrain[i] = TerrainKind.ROCK;
+    deco[i] = 0;
+    collision[i] = 1;
   }
 }
 // Stairs cutting through the ledge on N/S/E/W approaches
 for (let t = 0; t < 3; t++) {
   for (const [sx, sy] of [
-    [511, 509 + t],
-    [512, 509 + t],
-    [511, 526 + t],
-    [512, 526 + t],
-    [504 + t, 518],
-    [504 + t, 519],
-    [517 + t, 518],
-    [517 + t, 519],
+    [511, COURT_Y0 - 1 + t],
+    [512, COURT_Y0 - 1 + t],
+    [511, COURT_Y1 - 1 + t],
+    [512, COURT_Y1 - 1 + t],
+    [COURT_X0 - 1 + t, 518],
+    [COURT_X0 - 1 + t, 519],
+    [COURT_X1 - 1 + t, 518],
+    [COURT_X1 - 1 + t, 519],
   ]) {
     const i = idx(sx, sy, W);
     ground[i] = Tile.T_STEPS;
     terrain[i] = TerrainKind.MARBLE;
     deco[i] = 0;
+    collision[i] = 0;
   }
 }
 
-// Hero statues on pedestals — dense cardinal + corner placement (mood density)
-for (const [sx, sy] of [
-  [500, 512],
-  [523, 512],
-  [500, 525],
-  [523, 525],
-  [505, 508],
-  [518, 508],
-  [505, 529],
-  [518, 529],
-  [495, 518],
-  [528, 518],
-  [498, 505],
-  [525, 505],
-  [498, 532],
-  [525, 532],
-  [PX0 + 6, PY0 + 6],
-  [PX1 - 6, PY0 + 6],
-  [PX0 + 6, PY1 - 6],
-  [PX1 - 6, PY1 - 6],
-  [490, 511],
-  [533, 511],
-  [490, 526],
-  [533, 526],
-  [501, 518],
-  [522, 518],
-  [511, 505],
-  [512, 532],
-  [494, 512],
-  [529, 512],
-  [494, 525],
-  [529, 525],
-]) {
-  if (deco[idx(sx, sy, W)] !== 0) continue;
-  const k = terrain[idx(sx, sy, W)];
-  if (k === TerrainKind.WATER) continue;
-  deco[idx(sx, sy, W)] = Tile.STATUE_BASE;
-  overhead[idx(sx, sy - 1, W)] = Tile.STATUE_TOP;
+// Hero statues — ONLY center axis or mirrored flanking entrances (placement grammar)
+{
+  const statueSeeds: Array<{ x: number; y: number; kind: string }> = [
+    // center axis
+    { x: PLAZA_AXIS_X, y: 505, kind: "statue" },
+    { x: PLAZA_AXIS_X, y: 532, kind: "statue" },
+    { x: PLAZA_AXIS_X, y: 508, kind: "statue" },
+    // mirrored flanks at temple entrance
+    { x: PLAZA_AXIS_X - PLAZA_FLANK_OFFSET, y: PLAZA_ENTRANCE_YS[0], kind: "statue" },
+    { x: PLAZA_AXIS_X + PLAZA_FLANK_OFFSET, y: PLAZA_ENTRANCE_YS[0], kind: "statue" },
+    // mirrored flanks at south entrance
+    { x: PLAZA_AXIS_X - PLAZA_FLANK_OFFSET, y: PLAZA_ENTRANCE_YS[1], kind: "statue" },
+    { x: PLAZA_AXIS_X + PLAZA_FLANK_OFFSET, y: PLAZA_ENTRANCE_YS[1], kind: "statue" },
+  ];
+  const mirrored = mirrorAcrossAxis(statueSeeds, PLAZA_AXIS_X);
+  for (const p of mirrored) {
+    if (
+      !canPlaceStatue(p.x, p.y, {
+        axisX: PLAZA_AXIS_X,
+        entranceYs: PLAZA_ENTRANCE_YS,
+        flankOffset: PLAZA_FLANK_OFFSET,
+      })
+    )
+      continue;
+    if (deco[idx(p.x, p.y, W)] !== 0) continue;
+    const k = terrain[idx(p.x, p.y, W)];
+    if (k === TerrainKind.WATER) continue;
+    placeStamp(STAMP_STATUE, p.x, p.y, false);
+  }
 }
 
 // Processional colonnades along plaza frame + avenue edges (3-tile-tall, denser)
@@ -828,102 +899,141 @@ for (let y = PY0 + 10; y <= PY1 - 10; y += 2) {
     stampCol3(px, y);
   }
 }
-// Garden props on grass courts — purposeful clusters, open rest between (~1/20)
-for (let y = PY0 + 6; y <= PY1 - 6; y++) {
-  for (let x = PX0 + 6; x <= PX1 - 6; x++) {
+// ---------------------------------------------------------------------------
+// Placement grammar: anchor rules + symmetry + per-zone density budget
+// (replaces noise scatter / free-floating stamps for named props)
+// ---------------------------------------------------------------------------
+const layerView = (): LayerView => ({ width: W, ground, deco, overhead });
+
+const plazaZones: ZoneBudget[] = [
+  makeZoneBudget("plaza_core", PX0 + 8, PY0 + 8, PX1 - 8, PY1 - 8, 48),
+  makeZoneBudget("plaza_north", PX0, PY0, PX1, PY0 + 14, 36),
+  makeZoneBudget("plaza_gardens_w", 480, 482, 500, 542, 28),
+  makeZoneBudget("plaza_gardens_e", 523, 482, 543, 542, 28),
+  makeZoneBudget("avenue_ns", 506, PY0, 517, PY1, 24),
+];
+
+const isPlazaPath = (x: number, y: number): boolean => {
+  const k = terrain[idx(x, y, W)];
+  return k === TerrainKind.STONE || k === TerrainKind.DIRT;
+};
+
+// Collect planned decor for symmetry pass
+const plannedDecor: Array<{ x: number; y: number; kind: string }> = [];
+
+// Garden props on grass courts — lattice only, budgeted (no free noise scatter)
+for (let y = PY0 + 6; y <= PY1 - 6; y += 4) {
+  for (let x = PX0 + 6; x <= PX1 - 6; x += 4) {
     const i = idx(x, y, W);
     if (deco[i] !== 0) continue;
     if (terrain[i] !== TerrainKind.GRASS) continue;
-    // keep processional avenues clear
     if (x >= 508 && x <= 515) continue;
     if (y >= 515 && y <= 522 && x >= 500 && x <= 523) continue;
     if (Math.abs(x - FCX) < 10 && Math.abs(y - FCY) < 10) continue;
-    // cluster grid: only plant on 4×4 lattice seeds + rare fill
-    const cluster = x % 4 === 0 && y % 4 === 0;
+    if (!tryConsumeBudget(plazaZones, x, y)) continue;
     const h = detailNoise(x * 11 + 3, y * 13 + 7);
-    if (!cluster && h > 0.08) continue;
-    if (h < 0.04) {
+    if (h < 0.35) {
       if (deco[i - W] === 0 && overhead[i - W] === 0) {
-        deco[i] = Tile.TREE_TRUNK;
-        overhead[i - W] = Tile.TREE_CANOPY;
+        placeStamp(STAMP_TREE, x, y, false);
+        plannedDecor.push({ x, y, kind: "tree" });
       }
-    } else if (h < 0.07 && cluster) {
-      deco[i] = Tile.BUSH;
-    } else if (h < 0.1 && cluster) {
-      deco[i] = h < 0.085 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
-    } else if (h < 0.12 && cluster && (x + y) % 8 === 0) {
-      deco[i] = Tile.AMPHORA;
-    } else if (h < 0.14 && cluster && (x + y) % 10 === 0) {
-      deco[i] = Tile.PILLAR;
+    } else if (h < 0.55) {
+      placeStamp(STAMP_BUSH, x, y, false);
+      plannedDecor.push({ x, y, kind: "bush" });
+    } else if (h < 0.75) {
+      deco[i] = h < 0.65 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
+      plannedDecor.push({ x, y, kind: "flowers" });
     }
   }
 }
-// Marble-court props: amphorae, rugs, tables along court (not only grass)
-// Rugs stamped after bake as special ground; mark with a reserved flag via deco temp? 
-// We stamp rugs into ground AFTER bakeAutotile — collect coords.
+
+// Rugs along path edges (walkable) — collected for post-bake ground stamp
 const rugCells: number[] = [];
-for (let y = PY0 + 8; y <= PY1 - 8; y++) {
-  for (let x = PX0 + 8; x <= PX1 - 8; x++) {
+for (let y = PY0 + 8; y <= PY1 - 8; y += 3) {
+  for (let x = PX0 + 8; x <= PX1 - 8; x += 3) {
+    if (!canPlaceBenchOrPlanter(isPlazaPath, x, y) && !isPlazaPath(x, y)) continue;
     const i = idx(x, y, W);
     if (deco[i] !== 0) continue;
-    if (terrain[i] !== TerrainKind.MARBLE) continue;
-    if (x >= 508 && x <= 515) continue; // avenue clear
-    if (y >= 515 && y <= 522) continue;
-    if (Math.abs(x - FCX) < 11 && Math.abs(y - FCY) < 11) continue;
-    const h = detailNoise(x * 17 + 5, y * 19 + 9);
-    if (h < 0.12 && (x + y) % 3 === 0) {
-      deco[i] = Tile.AMPHORA;
-    } else if (h < 0.18 && (x % 4 === 0) && (y % 3 === 0)) {
-      deco[i] = Tile.PILLAR;
-    } else if (h < 0.22 && (x + y) % 6 === 0) {
-      rugCells.push(i);
-    } else if (h < 0.25 && (x % 5 === 0) && (y % 4 === 0)) {
-      deco[i] = Tile.TABLE;
+    if (terrain[i] === TerrainKind.WATER || terrain[i] === TerrainKind.GRASS) continue;
+    if (x >= 509 && x <= 514 && y >= 516 && y <= 521) continue;
+    if (!tryConsumeBudget(plazaZones, x, y)) continue;
+    if ((x + y) % 6 === 0) rugCells.push(i);
+  }
+}
+
+// Benches / planters ONLY along path edges
+{
+  const edgeSeeds: Array<{ x: number; y: number; kind: string }> = [];
+  for (let y = PY0 + 4; y <= PY1 - 4; y++) {
+    for (const px of [507, 516]) {
+      if (canPlaceBenchOrPlanter(isPlazaPath, px, y)) {
+        edgeSeeds.push({ x: px, y, kind: y % 4 === 0 ? "bench" : "planter" });
+      }
     }
   }
-}
-// Market stall rugs — dense warm color bands (mood stalls / banners)
-for (let x = PX0 + 6; x <= PX1 - 6; x += 2) {
-  for (const yy of [512, 513, 524, 525]) {
-    if (Math.abs(x - 511) < 6) continue;
-    const i = idx(x, yy, W);
-    if (deco[i] !== 0) continue;
-    if (terrain[i] === TerrainKind.WATER || terrain[i] === TerrainKind.GRASS) continue;
-    rugCells.push(i);
-    if ((x / 2) % 2 === 0) {
-      if (deco[idx(x, yy - 1, W)] === 0) deco[idx(x, yy - 1, W)] = Tile.AMPHORA;
-    } else if (deco[idx(x + 1, yy, W)] === 0) {
-      deco[idx(x + 1, yy, W)] = Tile.TABLE;
+  for (let x = PX0 + 4; x <= PX1 - 4; x++) {
+    for (const py of [514, 523]) {
+      if (canPlaceBenchOrPlanter(isPlazaPath, x, py)) {
+        edgeSeeds.push({ x, y: py, kind: x % 4 === 0 ? "bench" : "planter" });
+      }
     }
   }
-}
-// N-S avenue market rugs (extra warm_frac)
-for (let y = PY0 + 10; y <= PY1 - 10; y += 3) {
-  for (const xx of [505, 506, 517, 518]) {
-    if (Math.abs(y - FCY) < 8) continue;
-    const i = idx(xx, y, W);
-    if (deco[i] !== 0) continue;
-    if (terrain[i] === TerrainKind.WATER || terrain[i] === TerrainKind.GRASS) continue;
-    rugCells.push(i);
-    if (deco[idx(xx, y - 1, W)] === 0 && (y % 6 === 0)) deco[idx(xx, y - 1, W)] = Tile.AMPHORA;
+  const mirrored = mirrorAcrossAxis(edgeSeeds, PLAZA_AXIS_X);
+  for (const p of mirrored) {
+    if (!canPlaceBenchOrPlanter(isPlazaPath, p.x, p.y)) continue;
+    if (deco[idx(p.x, p.y, W)] !== 0) continue;
+    if (terrain[idx(p.x, p.y, W)] === TerrainKind.WATER) continue;
+    if (!tryConsumeBudget(plazaZones, p.x, p.y)) continue;
+    if (p.kind === "bench") placeStamp(STAMP_BENCH, p.x, p.y, false);
+    else placeStamp(STAMP_PLANTER, p.x, p.y, false);
+    plannedDecor.push(p);
   }
 }
-// Banners on colonnade capitals near temple / fountain approaches
-for (const [bx, by] of [
-  [504, 510],
-  [519, 510],
-  [504, 527],
-  [519, 527],
-  [500, 505],
-  [523, 505],
-  [498, 518],
-  [525, 518],
-]) {
-  if (overhead[idx(bx, by, W)] === 0) overhead[idx(bx, by, W)] = Tile.BANNER;
+
+// Amphorae along path edges (budgeted, mirrored)
+{
+  const seeds: Array<{ x: number; y: number; kind: string }> = [];
+  for (let x = PX0 + 6; x <= PX1 - 6; x += 6) {
+    if (Math.abs(x - PLAZA_AXIS_X) < 5) continue;
+    seeds.push({ x, y: PY0 + 2, kind: "amphora" });
+    seeds.push({ x, y: PY1 - 2, kind: "amphora" });
+  }
+  for (const p of mirrorAcrossAxis(seeds, PLAZA_AXIS_X)) {
+    if (deco[idx(p.x, p.y, W)] !== 0) continue;
+    if (terrain[idx(p.x, p.y, W)] === TerrainKind.WATER) continue;
+    if (!tryConsumeBudget(plazaZones, p.x, p.y)) continue;
+    placeStamp(STAMP_AMPHORA, p.x, p.y, false);
+    plannedDecor.push(p);
+  }
 }
-// processional pillar avenue from south gate into plaza
+
+// Banners ONLY on columns / wall faces
+{
+  const bannerCandidates: Array<{ x: number; y: number }> = [
+    [504, 510],
+    [519, 510],
+    [504, 527],
+    [519, 527],
+    [500, 505],
+    [523, 505],
+    [506, 512],
+    [517, 512],
+  ].map(([x, y]) => ({ x, y }));
+  const view = layerView();
+  for (const p of mirrorAcrossAxis(
+    bannerCandidates.map((c) => ({ ...c, kind: "banner" })),
+    PLAZA_AXIS_X
+  )) {
+    if (!canPlaceBanner(view, p.x, p.y)) continue;
+    if (overhead[idx(p.x, p.y, W)] !== 0 && overhead[idx(p.x, p.y, W)] !== Tile.COLUMN_TOP && overhead[idx(p.x, p.y, W)] !== Tile.COLUMN_SHAFT)
+      continue;
+    placeStamp(STAMP_BANNER, p.x, p.y, true);
+  }
+}
+
+// processional pillar avenue from south gate into plaza (mirrored, budgeted)
 for (let y = PY1 + 1; y <= Math.min(PY1 + 18, 560); y += 2) {
-  for (const px of [506, 507, 516, 517]) {
+  for (const px of [506, 517]) {
     if (deco[idx(px, y, W)] !== 0) continue;
     const k = terrain[idx(px, y, W)];
     if (
@@ -933,7 +1043,7 @@ for (let y = PY1 + 1; y <= Math.min(PY1 + 18, 560); y += 2) {
       k !== TerrainKind.MARBLE
     )
       continue;
-    deco[idx(px, y, W)] = px === 507 || px === 516 ? Tile.PILLAR : Tile.AMPHORA;
+    placeStamp(STAMP_PILLAR, px, y, false);
   }
 }
 
@@ -1016,8 +1126,9 @@ for (const [qx, qy] of quadrants) {
   }
 }
 
-// city lawn planting: sparse clusters with open rest (~1 prop per 20 open tiles).
+// city lawn planting: sparse lattice clusters (~1 prop per 20 open tiles).
 // Never stamp solid deco on house door/spawn tiles or the 3-tile door path.
+// No free-floating STATUE (statues only on plaza axis / flanks).
 const houseClear = new Set<number>();
 for (const h of houses) {
   for (let dy = 0; dy <= 3; dy++) {
@@ -1034,6 +1145,8 @@ for (let y = CITY_Y0 + 4; y <= CITY_Y1 - 4; y++) {
   for (let x = CITY_X0 + 3; x <= CITY_X1 - 3; x++) {
     const i = idx(x, y, W);
     if (houseClear.has(i)) continue;
+    // skip plaza interior (handled by plaza grammar)
+    if (x >= PX0 && x <= PX1 && y >= PY0 && y <= PY1) continue;
     if (deco[i] !== 0 || terrain[i] !== TerrainKind.GRASS) continue;
     // 5×5 lattice clusters only — open lawn between
     if (x % 5 !== 0 || y % 5 !== 0) continue;
@@ -1045,20 +1158,16 @@ for (let y = CITY_Y0 + 4; y <= CITY_Y1 - 4; y++) {
         terrain[idx(x, y - 1, W)] === TerrainKind.GRASS &&
         !houseClear.has(i - W)
       ) {
-        deco[i] = Tile.TREE_TRUNK;
-        overhead[i - W] = Tile.TREE_CANOPY;
+        placeStamp(STAMP_TREE, x, y, false);
       }
     } else if (d < 0.22) {
       deco[i] = d < 0.17 ? Tile.FLOWERS_RED : Tile.FLOWERS_GOLD;
     } else if (d < 0.32) {
-      deco[i] = Tile.BUSH;
+      placeStamp(STAMP_BUSH, x, y, false);
     } else if (d < 0.4 && (x + y) % 10 === 0) {
-      deco[i] = Tile.AMPHORA;
+      placeStamp(STAMP_AMPHORA, x, y, false);
     } else if (d < 0.48 && (x + y) % 15 === 0) {
-      deco[i] = Tile.PILLAR;
-    } else if (d < 0.55 && x % 15 === 0 && y % 10 === 0) {
-      deco[i] = Tile.STATUE_BASE;
-      if (overhead[i - W] === 0 && !houseClear.has(i - W)) overhead[i - W] = Tile.STATUE_TOP;
+      placeStamp(STAMP_PILLAR, x, y, false);
     }
   }
 }
@@ -1112,19 +1221,25 @@ for (const i of rugCells) {
 // bakeAutotileGround preserves T_STEPS/T_FLOOR — good if they exist.
 // Fountain water is terrain WATER → autotiled with transitions.
 
-// Final safety: clear solid deco off every house door/spawn
+// Final safety: clear solid deco off every house door/spawn + clear collision bits
 for (const h of houses) {
   for (const [hx, hy] of [
     [h.doorX, h.doorY],
     [h.spawnX, h.spawnY],
     [h.doorX, h.doorY + 1],
     [h.spawnX, h.spawnY + 1],
+    [h.doorX, h.doorY + 2],
+    [h.spawnX, h.spawnY + 2],
   ] as const) {
     const i = idx(hx, hy, W);
     if (SOLID_TILES.has(deco[i])) deco[i] = 0;
     if (SOLID_TILES.has(ground[i])) {
       terrain[i] = TerrainKind.STONE;
       ground[i] = baseTileForTerrain(TerrainKind.STONE, (hx + hy) % 3);
+    }
+    // stamp footprints may have set collision before deco was cleared
+    if (!SOLID_TILES.has(ground[i]) && !SOLID_TILES.has(deco[i])) {
+      collision[i] = 0;
     }
   }
 }
@@ -1179,24 +1294,75 @@ for (let y = 2; y < H - 2; y++) {
 }
 console.log(`scatter decals placed: ${scatterCount.toLocaleString()}`);
 
-// plaza embellishments: bronze-age flair — urns along the border
-for (let x = PX0 + 4; x <= PX1 - 4; x += 6) {
-  if (Math.abs(x - 511) < 5) continue;
-  for (const py of [PY0 + 2, PY1 - 2]) {
-    if (deco[idx(x, py, W)] === 0) deco[idx(x, py, W)] = Tile.AMPHORA;
+// PAINTING only on wall-face tiles (never open floor). Delete any floor placements.
+{
+  const view = layerView();
+  // Clear any painting that landed on non-wall (safety) — deco or overhead
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = idx(x, y, W);
+      if (deco[i] === Tile.PAINTING) {
+        if (!canPlacePainting(view, x, y)) deco[i] = 0;
+        else {
+          // migrate legacy deco paintings to overhead so wall solid remains
+          overhead[i] = Tile.PAINTING;
+          deco[i] = 0;
+        }
+      }
+      if (overhead[i] === Tile.PAINTING && !canPlacePainting(view, x, y)) {
+        overhead[i] = 0;
+      }
+    }
+  }
+  // Place paintings on temple / house wall faces (mirrored)
+  const wallPaintSeeds: Array<{ x: number; y: number; kind: string }> = [];
+  // Temple facade wall cells (H_WALL / T_COL on deco)
+  for (let x = 500; x <= 522; x += 2) {
+    const wy = PY0 + 7; // wall row of stampTemple facade
+    if (canPlacePainting(view, x, wy)) wallPaintSeeds.push({ x, y: wy, kind: "painting" });
+  }
+  // Side wall runs flanking temple approach
+  for (let y = PY0 + 5; y <= PY0 + 12; y += 2) {
+    for (const px of [499, 524]) {
+      if (canPlacePainting(view, px, y)) wallPaintSeeds.push({ x: px, y, kind: "painting" });
+    }
+  }
+  for (const p of mirrorAcrossAxis(wallPaintSeeds, PLAZA_AXIS_X)) {
+    if (!canPlacePainting(view, p.x, p.y)) continue;
+    const i = idx(p.x, p.y, W);
+    if (deco[i] === Tile.H_DOOR) continue;
+    placeStamp(STAMP_PAINTING, p.x, p.y, true);
   }
 }
-for (let y = PY0 + 8; y <= PY1 - 8; y += 6) {
-  if (Math.abs(y - 511) < 5) continue;
-  for (const pxx of [PX0 + 2, PX1 - 2]) {
-    if (deco[idx(pxx, y, W)] === 0) deco[idx(pxx, y, W)] = Tile.AMPHORA;
+
+// CRATE requires orthogonal wall neighbor (corner preferred)
+{
+  const view = layerView();
+  const crateCandidates: Array<{ x: number; y: number; score: number }> = [];
+  for (let y = PY0 + 3; y <= PY1 - 3; y++) {
+    for (let x = PX0 + 3; x <= PX1 - 3; x++) {
+      if (deco[idx(x, y, W)] !== 0) continue;
+      if (terrain[idx(x, y, W)] === TerrainKind.WATER) continue;
+      const s = crateScore(view, x, y);
+      if (s < 0) continue;
+      crateCandidates.push({ x, y, score: s });
+    }
   }
-}
-// heroic statues flanking the grand temple steps (outside colonnade footprint)
-for (const sx of [498, 524]) {
-  const sy = PY0 + 11; // just south of temple steps
-  deco[idx(sx, sy, W)] = Tile.STATUE_BASE;
-  overhead[idx(sx, sy - 1, W)] = Tile.STATUE_TOP;
+  crateCandidates.sort((a, b) => b.score - a.score);
+  let crates = 0;
+  const crateSeeds: Array<{ x: number; y: number; kind: string }> = [];
+  for (const c of crateCandidates) {
+    if (crates >= 8) break;
+    if (deco[idx(c.x, c.y, W)] !== 0) continue;
+    if (!tryConsumeBudget(plazaZones, c.x, c.y)) continue;
+    crateSeeds.push({ x: c.x, y: c.y, kind: "crate" });
+    crates++;
+  }
+  for (const p of mirrorAcrossAxis(crateSeeds, PLAZA_AXIS_X)) {
+    if (!canPlaceCrate(view, p.x, p.y)) continue;
+    if (deco[idx(p.x, p.y, W)] !== 0) continue;
+    placeStamp(STAMP_CRATE, p.x, p.y, false);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1227,14 +1393,62 @@ for (const i of rugCells) {
   if (deco[i] === 0) ground[i] = Tile.RUG;
 }
 
+/**
+ * Final pool basin lock — AFTER every bakeAutotileGround.
+ * Pure rectangular WATER* fill inside the basin; solid POOL_COPING ring only.
+ * Strips any water_over_* blob transitions (including 45° corner blobs) that
+ * autotile may have painted on pool interior edge cells.
+ */
+function finalizePoolBasin(): void {
+  for (let y = POOL_Y0 - 1; y <= POOL_Y1 + 1; y++) {
+    for (let x = POOL_X0 - 1; x <= POOL_X1 + 1; x++) {
+      const i = idx(x, y, W);
+      const onRing =
+        x === POOL_X0 - 1 ||
+        x === POOL_X1 + 1 ||
+        y === POOL_Y0 - 1 ||
+        y === POOL_Y1 + 1;
+      const inWater = x >= POOL_X0 && x <= POOL_X1 && y >= POOL_Y0 && y <= POOL_Y1;
+      if (inWater) {
+        terrain[i] = TerrainKind.WATER;
+        // pure water variants only — never transition blobs
+        const v = (x + y) % 3;
+        ground[i] = v === 0 ? Tile.WATER : v === 1 ? Tile.WATER2 : Tile.WATER3;
+        // keep fountain rim deco; clear other deco on open water
+        const d = deco[i];
+        if (
+          d !== Tile.FOUNTAIN_NW &&
+          d !== Tile.FOUNTAIN_NE &&
+          d !== Tile.FOUNTAIN_SW &&
+          d !== Tile.FOUNTAIN_SE
+        ) {
+          deco[i] = 0;
+        }
+        encounter[i] = 0;
+      } else if (onRing) {
+        terrain[i] = TerrainKind.MARBLE;
+        ground[i] = Tile.POOL_COPING;
+        deco[i] = 0;
+        encounter[i] = 0;
+      }
+    }
+  }
+}
+console.log("finalize pool basin (pure WATER + POOL_COPING, no water transitions)...");
+finalizePoolBasin();
+
 // ---------------------------------------------------------------------------
 // collision + validation
+// Rebuild collision from current ground/deco solids so cleared stamp art cannot
+// leave ghost bits. Stamp footprints still wrote collision at place time; this
+// pass drops bits whose art is gone and ORs remaining SOLID_TILES (no overhead).
 // ---------------------------------------------------------------------------
 
-console.log("collision pass...");
-const collision = new Uint8Array(W * H);
+console.log("collision pass (rebuild from ground/deco solids; drop ghost bits)...");
+// Zero then rebuild — prevents stamp-then-clear ghosts (e.g. dirtRoad deco wipe)
+collision.fill(0);
 for (let i = 0; i < W * H; i++) {
-  if (SOLID_TILES.has(ground[i]) || SOLID_TILES.has(deco[i])) collision[i] = 1;
+  if (SOLID_TILES.has(ground[i]!) || SOLID_TILES.has(deco[i]!)) collision[i] = 1;
 }
 // map borders
 for (let x = 0; x < W; x++) {
@@ -1244,6 +1458,21 @@ for (let x = 0; x < W; x++) {
 for (let y = 0; y < H; y++) {
   collision[idx(0, y, W)] = 1;
   collision[idx(W - 1, y, W)] = 1;
+}
+// Fountain rim + pool coping (explicit; already in SOLID_TILES but keep belt-and-suspenders)
+for (let y = POOL_Y0 - 1; y <= POOL_Y1 + 1; y++) {
+  for (let x = POOL_X0 - 1; x <= POOL_X1 + 1; x++) {
+    const i = idx(x, y, W);
+    if (ground[i] === Tile.POOL_COPING) collision[i] = 1;
+    if (
+      deco[i] === Tile.FOUNTAIN_NW ||
+      deco[i] === Tile.FOUNTAIN_NE ||
+      deco[i] === Tile.FOUNTAIN_SW ||
+      deco[i] === Tile.FOUNTAIN_SE
+    )
+      collision[i] = 1;
+    // open water interior is solid (swim-block) via SOLID_TILES rebuild above
+  }
 }
 
 // validation: every house door + spawn walkable and reachable from the fountain

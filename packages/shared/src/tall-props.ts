@@ -30,10 +30,11 @@ export const TALL_PROP_TOP: Readonly<Record<number, number>> = {
 /**
  * Full vertical stack of tile indices for a tall prop, ordered top → bottom.
  * Bottom entry is the base (foot) tile. Length ≥ 1.
- * Plaza colonnade columns are 3 tiles tall (capital + shaft + base).
+ * Plaza colonnade columns are 3 tiles tall (capital + freestanding shaft + base).
+ * Mid-shaft uses COLUMN_SHAFT (non-solid) — never T_COL_MID wall art alone.
  */
 export const TALL_PROP_STACK: Readonly<Record<number, readonly number[]>> = {
-  [Tile.COLUMN_BASE]: [Tile.COLUMN_TOP, Tile.T_COL_MID, Tile.COLUMN_BASE],
+  [Tile.COLUMN_BASE]: [Tile.COLUMN_TOP, Tile.COLUMN_SHAFT, Tile.COLUMN_BASE],
   [Tile.STATUE_BASE]: [Tile.STATUE_TOP, Tile.STATUE_BASE],
   [Tile.TREE_TRUNK]: [Tile.TREE_CANOPY, Tile.TREE_TRUNK],
   [Tile.PILLAR]: [Tile.PILLAR],

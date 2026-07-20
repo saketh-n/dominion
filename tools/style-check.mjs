@@ -156,10 +156,13 @@ async function main() {
   log(`  water texture score: ${waterDith.toFixed(3)}`);
   ok = gate("water_has_texture_variation", waterDith >= 0.02, `score=${waterDith.toFixed(3)}`) && ok;
 
-  // Transition tile (base 86) should differ from pure fills
-  const t0 = await sampleTile(img, 86, cols);
+  // Transition tile (first blob at TRANSITION_BASE) should differ from pure fills
+  // Parse TRANSITION_BASE from tiles.ts so new prop IDs don't hard-break this gate.
+  const tbMatch = tilesTs.match(/TRANSITION_BASE\s*=\s*(\d+)/);
+  const transitionBase = tbMatch ? parseInt(tbMatch[1], 10) : 94;
+  const t0 = await sampleTile(img, transitionBase, cols);
   const opaque = [...t0].filter((_, i) => i % 4 === 3 && t0[i] > 200).length;
-  ok = gate("transition_tile_0_painted", opaque >= 200, `opaque~${opaque}`) && ok;
+  ok = gate("transition_tile_0_painted", opaque >= 200, `opaque~${opaque} id=${transitionBase}`) && ok;
 
   // Palette: grass/marble not pure white/black dominant
   const grass = paletteHarsh(await sampleTile(img, 1, cols));

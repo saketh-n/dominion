@@ -4,6 +4,8 @@ export * from "./graphics-analysis.js";
 export * from "./tall-props.js";
 export * from "./autotile.js";
 export * from "./tiles.js";
+export * from "./prop-stamps.js";
+export * from "./placement.js";
 export * from "./world.js";
 export * from "./buildings.js";
 export * from "./protocol.js";

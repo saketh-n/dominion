@@ -419,11 +419,56 @@ export class WorldScene extends Phaser.Scene {
     this.syncNameTag();
   }
 
+  /**
+   * Layout name-tags so stacked players at the same/near tile do not fully occlude.
+   * Uses a deterministic vertical offset stack + slight alpha fade for remotes
+   * that share a tile with the local player or another remote.
+   */
+  private layoutNameTags() {
+    type Tag = { obj: Phaser.GameObjects.Text; x: number; y: number; key: string };
+    const tags: Tag[] = [];
+    if (this.nameTag && this.player && this.settings.showNames) {
+      tags.push({
+        obj: this.nameTag,
+        x: this.player.x,
+        y: this.player.y - CHAR_H - 2,
+        key: "local",
+      });
+    }
+    for (const [sid, r] of this.remotes) {
+      if (!r.nameTag.visible || !r.sprite.visible) continue;
+      tags.push({
+        obj: r.nameTag,
+        x: r.sprite.x,
+        y: r.sprite.y - CHAR_H - 2,
+        key: sid,
+      });
+    }
+    // Group by approximate tile (16px) so same-cell tags stack
+    const groups = new Map<string, Tag[]>();
+    for (const t of tags) {
+      const gx = Math.round(t.x / TILE_SIZE);
+      const gy = Math.round(t.y / TILE_SIZE);
+      const k = `${gx},${gy}`;
+      const arr = groups.get(k) ?? [];
+      arr.push(t);
+      groups.set(k, arr);
+    }
+    for (const arr of groups.values()) {
+      // stable order: local first, then session id
+      arr.sort((a, b) => (a.key === "local" ? -1 : b.key === "local" ? 1 : a.key.localeCompare(b.key)));
+      arr.forEach((t, i) => {
+        t.obj.x = t.x;
+        t.obj.y = t.y - i * 12; // vertical offset stack
+        t.obj.setAlpha(i === 0 ? 1 : Math.max(0.45, 1 - i * 0.25));
+        t.obj.setDepth((this.player?.depth ?? 10) + 0.1 + i * 0.01);
+      });
+    }
+  }
+
   private syncNameTag() {
     if (!this.nameTag || !this.player) return;
-    this.nameTag.x = this.player.x;
-    this.nameTag.y = this.player.y - CHAR_H - 2;
-    this.nameTag.setDepth(this.player.depth + 0.1);
+    this.layoutNameTags();
   }
 
   private heldDir(): Dir | null {
@@ -778,12 +823,9 @@ export class WorldScene extends Phaser.Scene {
         }
       }
       r.sprite.setDepth(10 + r.ty * 0.001);
-      r.nameTag.x = r.sprite.x;
-      r.nameTag.y = r.sprite.y - CHAR_H - 2;
-      r.nameTag.setDepth(r.sprite.depth + 0.1);
     }
 
-    this.syncNameTag();
+    this.layoutNameTags();
     if (this.place === "world") this.refreshStatus();
   }
 }
