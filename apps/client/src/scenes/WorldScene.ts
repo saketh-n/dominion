@@ -23,6 +23,8 @@ import {
   buildInteriorWorld,
   isInteriorExitTile,
   INTERIOR_SPAWN_TILE,
+  stepDurationMs,
+  CONTROLS_CHEATSHEET,
 } from "@game/shared";
 import { WorldModel } from "../world/WorldModel";
 import { WindowedTilemap } from "../world/WindowedTilemap";
@@ -44,8 +46,6 @@ import { ChatUI } from "../ui/ChatUI";
 import { PartyHUD } from "../ui/PartyHUD";
 import { GameMenus, loadSettings } from "../ui/GameMenus";
 import { refitDisplay } from "../displayScale";
-
-const STEP_MS = 1000 / WALK_SPEED;
 
 interface RemoteSprite {
   sprite: Phaser.GameObjects.Sprite;
@@ -76,6 +76,7 @@ export class WorldScene extends Phaser.Scene {
   private keyI!: Phaser.Input.Keyboard.Key;
   private keyO!: Phaser.Input.Keyboard.Key;
   private keyH!: Phaser.Input.Keyboard.Key;
+  private keyR!: Phaser.Input.Keyboard.Key;
   private keyEsc!: Phaser.Input.Keyboard.Key;
 
   tileX = 513; // PLAZA_SPAWN_X — first paint defaults to capital until schema arrives
@@ -95,6 +96,7 @@ export class WorldScene extends Phaser.Scene {
   private partyHud!: PartyHUD;
   private menus!: GameMenus;
   private statusText!: Phaser.GameObjects.Text;
+  private cheatSheet!: Phaser.GameObjects.Text;
   private promptText!: Phaser.GameObjects.Text;
   private hintBar!: Phaser.GameObjects.Text;
   private unbind: (() => void) | null = null;
@@ -165,6 +167,7 @@ export class WorldScene extends Phaser.Scene {
     this.keyI = this.input.keyboard!.addKey("I");
     this.keyO = this.input.keyboard!.addKey("O");
     this.keyH = this.input.keyboard!.addKey("H");
+    this.keyR = this.input.keyboard!.addKey("R");
     this.keyEsc = this.input.keyboard!.addKey("ESC");
     this.keyEnter = this.input.keyboard!.addKey("ENTER");
 
@@ -182,8 +185,21 @@ export class WorldScene extends Phaser.Scene {
     const cachedInv = getLastInventory();
     if (cachedInv.length) this.menus.setInventory(cachedInv);
     this.applySettings(this.menus.currentSettings);
+    // Top-left command cheat sheet (move / run / inventory) — fixed screen space.
+    this.cheatSheet = this.add
+      .text(8, 8, CONTROLS_CHEATSHEET, {
+        fontFamily: "monospace",
+        fontSize: "11px",
+        color: "#e8dcc0",
+        backgroundColor: "#000000bb",
+        padding: { x: 6, y: 4 },
+        lineSpacing: 2,
+      })
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(1_000_003);
     this.statusText = this.add
-      .text(8, 8, "", {
+      .text(8, 62, "", {
         fontFamily: "monospace",
         fontSize: "11px",
         color: "#c8b890",
@@ -205,7 +221,7 @@ export class WorldScene extends Phaser.Scene {
       .setDepth(1_000_001)
       .setVisible(false);
     this.hintBar = this.add
-      .text(480, 632, "↑↓←→/WASD move  ·  E enter  ·  Enter menu  ·  X exit  ·  H home", {
+      .text(480, 632, "↑↓←→/WASD move  ·  Hold R run  ·  I bag  ·  E enter  ·  Enter menu", {
         fontFamily: "monospace",
         fontSize: "11px",
         color: "#d8c8a0",
@@ -220,7 +236,7 @@ export class WorldScene extends Phaser.Scene {
     this.bindNet(room);
     this.hookRemotePlayers(room);
     this.chat.system(
-      "Controls: WASD/Arrows move · E enter door · X exit interior · Enter Start menu · P party · I bag · O settings · H go home · Esc close · click chat to type"
+      "Controls: WASD/Arrows move · Hold R to run · I bag · E enter door · X exit · Enter Start · P party · O settings · H home · Esc close"
     );
     this.installMenuHotkeys();
 
@@ -549,6 +565,12 @@ export class WorldScene extends Phaser.Scene {
     return null;
   }
 
+  /** Hold R while moving to run. R alone never starts a step. */
+  private isRunning(): boolean {
+    if (document.activeElement instanceof HTMLInputElement) return false;
+    return this.keyR?.isDown === true;
+  }
+
   private tryStep(d: Dir) {
     if (this.inBattle) return;
     this.dir = d;
@@ -570,11 +592,13 @@ export class WorldScene extends Phaser.Scene {
     this.tileX = nx;
     this.tileY = ny;
     this.player.play(`walk-${this.skin}-${d}`, true);
+    // Sample R at step start so hold-R shortens this tween; release returns to walk next step.
+    const duration = stepDurationMs(this.isRunning());
     this.tweens.add({
       targets: this.player,
       x: nx * TILE_SIZE + TILE_SIZE / 2,
       y: ny * TILE_SIZE + TILE_SIZE,
-      duration: STEP_MS,
+      duration,
       onUpdate: () => this.syncNameTag(),
       onComplete: () => {
         this.moving = false;

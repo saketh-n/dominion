@@ -94,7 +94,8 @@ Shared helpers: `onDoorTile`, `nearDoor`, `canConfirmEnter`, `resolveEnterTarget
 | Input | Action |
 |-------|--------|
 | WASD / Arrows | Move (grid steps) |
-| **E** | Enter building (on door or south-facing into door) |
+| **Hold R** + move | Run (faster grid steps; R alone does not move) |
+| **E** | Enter building (standing on the door tile) |
 | **X** | Exit interior (fallback; mat also exits) |
 | **Enter** | Open / close **Start menu** (Party / Bag / Settings / Exit menu) |
 | **P** | Party panel |
@@ -104,7 +105,7 @@ Shared helpers: `onDoorTile`, `nearDoor`, `canConfirmEnter`, `resolveEnterTarget
 | **Esc** | Close open menu |
 | Click chat + type | Send chat (**Tab** in chat toggles global/local) |
 
-A persistent on-screen hint bar shows move / E enter / Enter menu. Join prints a full controls system message. **P** / **I** / Start work during battle via DOM hotkeys (WorldScene is paused under the battle overlay).
+A **top-left cheat sheet** lists Move, Run (hold R), and Bag. A bottom hint bar echoes the main keys. Join prints a full controls system message. **P** / **I** / Start work during battle via DOM hotkeys (WorldScene is paused under the battle overlay).
 
 ---
 

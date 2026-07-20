@@ -3,7 +3,7 @@ import {
   WorldState,
   PlayerState,
   TICK_RATE,
-  WALK_SPEED,
+  MIN_MOVE_INTERVAL_MS,
   MSG,
   SMSG,
   MoveMsg,
@@ -31,8 +31,6 @@ import {
 } from "../systems/enterBuilding.js";
 import { loadOrGrantInventory } from "../systems/inventory.js";
 import type { EnterTarget } from "@game/shared";
-
-const STEP_MS = 1000 / WALK_SPEED;
 
 interface SessionData {
   uid: string;
@@ -120,9 +118,9 @@ export class WorldRoom extends Room<WorldState> {
     const dir = msg?.dir;
     if (dir !== 0 && dir !== 1 && dir !== 2 && dir !== 3) return;
 
-    // anti-speedhack: allow slight jitter but no faster than 80% of step time
+    // anti-speedhack: floor is run cadence × 0.8 so hold-R run is accepted
     const now = Date.now();
-    if (now - s.lastMoveAt < STEP_MS * 0.8) {
+    if (now - s.lastMoveAt < MIN_MOVE_INTERVAL_MS) {
       client.send(SMSG.MOVE_REJECT, { seq: msg.seq, x: p.x, y: p.y });
       return;
     }

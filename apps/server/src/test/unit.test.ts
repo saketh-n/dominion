@@ -49,6 +49,11 @@ import {
   SOLID_TILES,
   INTERIOR_ZOOM,
   OVERWORLD_ZOOM,
+  stepDurationMs,
+  RUN_STEP_MS,
+  WALK_STEP_MS,
+  MIN_MOVE_INTERVAL_MS,
+  CONTROLS_CHEATSHEET,
 } from "@game/shared";
 import { openDb, closeDb, getDb } from "../db/index.js";
 import { HouseRegistry } from "../systems/houses.js";
@@ -228,6 +233,52 @@ const tests = [
     }
     assert.equal(tryStep(-1, 0, DIR.LEFT).ok, false);
     assert.equal(isBlocked(9999, 0), true);
+  }),
+
+  test("run vs walk: stepDurationMs run faster; server floor accepts run cadence", () => {
+    const walk = stepDurationMs(false);
+    const run = stepDurationMs(true);
+    assert.equal(walk, WALK_STEP_MS);
+    assert.equal(run, RUN_STEP_MS);
+    assert.ok(run < walk, `run ${run} must be < walk ${walk}`);
+    // Legitimate run interval must clear the anti-speedhack floor
+    assert.ok(
+      RUN_STEP_MS >= MIN_MOVE_INTERVAL_MS,
+      `run step ${RUN_STEP_MS} must be ≥ MIN_MOVE_INTERVAL_MS ${MIN_MOVE_INTERVAL_MS}`
+    );
+    // Simulate session timestamps at run cadence — should not trip the floor
+    let lastMoveAt = 0;
+    const now0 = 1000;
+    assert.ok(now0 - lastMoveAt >= MIN_MOVE_INTERVAL_MS || lastMoveAt === 0);
+    lastMoveAt = now0;
+    const now1 = now0 + RUN_STEP_MS;
+    assert.ok(
+      now1 - lastMoveAt >= MIN_MOVE_INTERVAL_MS,
+      "second run step at RUN_STEP_MS spacing must be accepted"
+    );
+    // Super-fast spam still rejected
+    const nowSpam = lastMoveAt + MIN_MOVE_INTERVAL_MS - 1;
+    assert.ok(nowSpam - lastMoveAt < MIN_MOVE_INTERVAL_MS, "spam under floor rejected");
+    // WorldRoom wires the shared floor (not walk-only STEP_MS)
+    const roomSrc = readFileSync(join(ROOT, "../rooms/WorldRoom.ts"), "utf8");
+    assert.match(roomSrc, /MIN_MOVE_INTERVAL_MS/);
+    assert.match(roomSrc, /lastMoveAt\s*<\s*MIN_MOVE_INTERVAL_MS/);
+  }),
+
+  test("controls cheatsheet: move, hold R run, inventory/bag", () => {
+    assert.match(CONTROLS_CHEATSHEET, /move/i);
+    assert.match(CONTROLS_CHEATSHEET, /run/i);
+    assert.match(CONTROLS_CHEATSHEET, /\bR\b/);
+    assert.match(CONTROLS_CHEATSHEET, /bag|inventory/i);
+    assert.match(CONTROLS_CHEATSHEET, /\bI\b/);
+    const sceneSrc = readFileSync(
+      join(ROOT, "../../../client/src/scenes/WorldScene.ts"),
+      "utf8"
+    );
+    assert.match(sceneSrc, /CONTROLS_CHEATSHEET/);
+    assert.match(sceneSrc, /\.text\(\s*8\s*,\s*8\s*,\s*CONTROLS_CHEATSHEET/);
+    assert.match(sceneSrc, /stepDurationMs\s*\(\s*this\.isRunning/);
+    assert.match(sceneSrc, /addKey\(\s*["']R["']\s*\)/);
   }),
 
   test("chatRecipients: global reaches all; local filters distance + place", () => {
