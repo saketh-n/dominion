@@ -168,24 +168,35 @@ async function followDirs(dirs, label = "path") {
   return page.evaluate(() => window.__dominionPos);
 }
 
-// Precomputed BFS plaza(513,528) → temple door(511,489) around fountain
-// Regenerated after de-pillar (stoas/perimeter); recompute via BFS if map changes.
+// Precomputed BFS plaza(513,528) → temple H_DOOR (511,485) around fountain.
+// Door is the facade tile — standing south of it must NOT warp.
 const TO_TEMPLE = [
   1, 1, 1, 1, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1,
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2,
 ];
+const TEMPLE_DOOR = { x: 511, y: 485 };
 const atDoor = await followDirs(TO_TEMPLE, "to-temple");
 console.log("atDoor", atDoor);
 const doorPath = join(OUT, "live-temple-door.png");
 await page.screenshot({ path: doorPath, type: "png" });
 
-// If not exactly on door, try enter from adjacent + step onto door
-if (atDoor && (atDoor.x !== 511 || atDoor.y !== 489) && atDoor.place === "world") {
-  for (const d of [1, 2, 3, 0]) {
+// If not exactly on door, step toward the H_DOOR cell only (not adjacency warp)
+if (
+  atDoor &&
+  (atDoor.x !== TEMPLE_DOOR.x || atDoor.y !== TEMPLE_DOOR.y) &&
+  atDoor.place === "world"
+) {
+  for (let n = 0; n < 12; n++) {
+    const p = await page.evaluate(() => window.__dominionPos);
+    if (!p || p.place === "interior") break;
+    if (p.x === TEMPLE_DOOR.x && p.y === TEMPLE_DOOR.y) break;
+    let d = 1;
+    if (p.x < TEMPLE_DOOR.x) d = 3;
+    else if (p.x > TEMPLE_DOOR.x) d = 2;
+    else if (p.y > TEMPLE_DOOR.y) d = 1;
+    else d = 0;
     await page.evaluate((dir) => window.__dominionStep?.(dir), d);
     await page.waitForTimeout(230);
-    const p = await page.evaluate(() => window.__dominionPos);
-    if (p && Math.abs(p.x - 511) + Math.abs(p.y - 489) <= 1) break;
   }
 }
 

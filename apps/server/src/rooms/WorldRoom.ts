@@ -225,11 +225,12 @@ export class WorldRoom extends Room<WorldState> {
   private handleEnterHouse(client: Client) {
     const p = this.state.players.get(client.sessionId);
     if (!p || p.place !== "world" || p.inBattle) return;
-    // E confirm: on door tile OR directly south facing north — never side/north neighbors alone.
+    // E confirm: must already be standing ON the door tile (same as auto-enter).
+    // Standing in front of the building does not enter — walk onto the door first.
     const target = tryConfirmEnterBuilding(p.x, p.y, p.dir as 0 | 1 | 2 | 3, this.housesList(), p.houseId);
     if (target && this.applyEnterWarp(client, p, target)) return;
     client.send(SMSG.TOAST, {
-      message: "Stand on a doorway (or face it from the south) and press E — or H to go home.",
+      message: "Step onto the doorway to enter — or press H to go home.",
     });
   }
 

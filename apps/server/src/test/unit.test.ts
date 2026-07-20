@@ -32,6 +32,7 @@ import {
   onDoorTile,
   canConfirmEnter,
   enterPrompt,
+  Tile,
   STARTER_INVENTORY,
   describeStack,
   toggleMenu,
@@ -547,12 +548,24 @@ const tests = [
     assert.match(preload, /world\.json/);
   }),
 
-  test("public buildings: doors walkable and resolveEnterTarget finds them", () => {
+  test("public buildings: doors walkable, on H_DOOR facade, resolveEnterTarget finds them", () => {
     const w = getWorld();
     assert.ok(PUBLIC_BUILDINGS.length >= 2, "need temple + at least one shrine");
     for (const b of PUBLIC_BUILDINGS) {
       assert.equal(isBlocked(b.doorX, b.doorY), false, `${b.id} door must be walkable`);
       assert.equal(isBlocked(b.exitX, b.exitY), false, `${b.id} exit must be walkable`);
+      // Door must be the facade entrance tile, not the approach road in front.
+      const di = b.doorY * w.width + b.doorX;
+      assert.equal(
+        w.deco[di],
+        Tile.H_DOOR,
+        `${b.id} door (${b.doorX},${b.doorY}) must be H_DOOR deco — got ${w.deco[di]}`
+      );
+      // Exit is outside (south), not the door cell itself
+      assert.ok(
+        b.exitX !== b.doorX || b.exitY !== b.doorY,
+        `${b.id} exit must differ from door`
+      );
       const t = resolveEnterTarget(b.doorX, b.doorY, w.houses, -1, true);
       assert.ok(t, `resolve at ${b.id} door`);
       assert.equal(t!.buildingId, b.id);
@@ -565,7 +578,7 @@ const tests = [
       assert.equal(
         resolveEnterTarget(b.doorX, b.doorY + 1, w.houses, -1, true),
         null,
-        "adjacency must not auto-enter"
+        "standing in front of building must NOT auto-enter"
       );
       const prompt = enterPrompt(near);
       assert.match(prompt ?? "", /Enter/);
@@ -575,15 +588,24 @@ const tests = [
     const dist =
       Math.abs(temple.doorX - PLAZA_SPAWN_X) + Math.abs(temple.doorY - PLAZA_SPAWN_Y);
     assert.ok(dist < 50, `temple should be near plaza (dist=${dist})`);
+    // Old buggy approach tile (doorY+4 for temple) must not warp
+    assert.equal(
+      tryEnterBuilding(temple.doorX, temple.doorY + 4, w.houses, -1),
+      null,
+      "old approach road south of temple must not enter"
+    );
   }),
 
   test("door entry: stepping onto each of 4 neighbors does NOT enter; door tile does", () => {
     const w = getWorld();
     const temple = PUBLIC_BUILDINGS.find((b) => b.id === "grand-temple")!;
     const { doorX: dx, doorY: dy } = temple;
+    // Door is the real H_DOOR facade cell
+    assert.equal(w.deco[dy * w.width + dx], Tile.H_DOOR, "temple door is H_DOOR");
+
     const neighbors: Array<[number, number, string]> = [
       [dx, dy - 1, "north"],
-      [dx, dy + 1, "south"],
+      [dx, dy + 1, "south"], // in front of building — the bug case
       [dx - 1, dy, "west"],
       [dx + 1, dy, "east"],
     ];
@@ -598,32 +620,37 @@ const tests = [
         null,
         `tryEnter neighbor ${label} must not enter`
       );
+      assert.equal(
+        tryConfirmEnterBuilding(x, y, 1, w.houses, -1),
+        null,
+        `E from neighbor ${label} must not enter`
+      );
       // nearDoor still true for prompt on orthogonal neighbors
       assert.ok(nearDoor(x, y, dx, dy), `nearDoor prompt on ${label}`);
     }
-    // Exact door tile DOES enter
+    // Exact door tile DOES enter (walk onto door)
     const onDoor = resolveEnterTarget(dx, dy, w.houses, -1, true);
     assert.ok(onDoor, "exact door tile enters");
     assert.equal(onDoor!.buildingId, "grand-temple");
     assert.ok(tryEnterBuilding(dx, dy, w.houses, -1));
 
-    // E confirm: on door OK; south facing north OK; south facing other dirs no; side neighbors no
+    // E confirm: only ON door — south-facing-from-front does NOT enter
     assert.ok(canConfirmEnter(dx, dy, 0, dx, dy), "on door any dir");
-    assert.ok(canConfirmEnter(dx, dy + 1, 1, dx, dy), "south facing north");
-    assert.equal(canConfirmEnter(dx, dy + 1, 0, dx, dy), false, "south facing south no");
+    assert.ok(canConfirmEnter(dx, dy, 1, dx, dy), "on door facing north");
+    assert.equal(canConfirmEnter(dx, dy + 1, 1, dx, dy), false, "in front facing north no");
+    assert.equal(canConfirmEnter(dx, dy + 1, 0, dx, dy), false, "in front facing south no");
     assert.equal(canConfirmEnter(dx - 1, dy, 3, dx, dy), false, "west neighbor no");
     assert.equal(canConfirmEnter(dx + 1, dy, 2, dx, dy), false, "east neighbor no");
     assert.equal(canConfirmEnter(dx, dy - 1, 0, dx, dy), false, "north neighbor no");
 
-    assert.ok(resolveConfirmEnterTarget(dx, dy + 1, 1, w.houses, -1, true));
-    assert.equal(resolveConfirmEnterTarget(dx, dy + 1, 0, w.houses, -1, true), null);
+    assert.equal(resolveConfirmEnterTarget(dx, dy + 1, 1, w.houses, -1, true), null);
     assert.ok(tryConfirmEnterBuilding(dx, dy, 1, w.houses, -1));
-    assert.ok(tryConfirmEnterBuilding(dx, dy + 1, 1, w.houses, -1));
-    assert.equal(tryConfirmEnterBuilding(dx, dy + 1, 0, w.houses, -1), null);
+    assert.equal(tryConfirmEnterBuilding(dx, dy + 1, 1, w.houses, -1), null);
     assert.equal(tryConfirmEnterBuilding(dx - 1, dy, 3, w.houses, -1), null);
 
-    // Same rules for a house door
-    const h0 = w.houses[0]!;
+    // Same rules for a house door (H_DOOR cell)
+    const h0 = w.houses.find((h) => w.deco[h.doorY * w.width + h.doorX] === Tile.H_DOOR)!;
+    assert.ok(h0, "need a house with H_DOOR deco");
     for (const [ox, oy] of [
       [0, -1],
       [0, 1],

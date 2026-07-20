@@ -2,11 +2,13 @@
  * Enterable buildings (Pokemon-style interiors).
  * Houses come from world.houses; public buildings are fixed capital landmarks.
  *
- * Door rules (Pokémon-correct):
- * - Auto-enter warps only when the step lands exactly on the door tile
- *   (x === doorX && y === doorY), typically walking north into a south-facing door.
- * - nearDoor (Manhattan ≤ 1) is ONLY for the "Press E to enter" prompt — never warps.
- * - E confirm works when standing on the door tile, or directly south of it facing north.
+ * Door rules (Pokémon DP / overworld convention):
+ * - The walkable entrance is the door tile on the building facade (H_DOOR).
+ * - Auto-enter warps ONLY when a step lands exactly on that tile
+ *   (x === doorX && y === doorY). Neighbors — including the tile directly
+ *   in front of the building — never warp.
+ * - nearDoor (Manhattan ≤ 1) is ONLY for the "Press E to enter" prompt.
+ * - E confirm works only while standing ON the door tile (same as walking in).
  */
 
 import type { Dir } from "./protocol.js";
@@ -17,45 +19,48 @@ export interface PublicBuilding {
   id: string;
   kind: InteriorKind;
   name: string;
-  /** Walk-on door / threshold tile (must be walkable overworld). */
+  /**
+   * Walk-on door tile — must match the facade H_DOOR cell in gen-map
+   * (not the approach tile south of the building).
+   */
   doorX: number;
   doorY: number;
-  /** Exit outdoor tile (usually one step south of door). */
+  /** Exit outdoor tile (one step south of door — outside, not the door). */
   exitX: number;
   exitY: number;
 }
 
 /**
- * Capital public interiors near plaza spawn so players can enter buildings
- * without hiking to a distant house first.
- * Coords match tools/gen-map.ts stamps (temple @ 511, PY0+3; south exedra @ 511, PY1-12).
+ * Capital public interiors. Coords = gen-map H_DOOR cells:
+ * - temple: stampTemple(511, PY0+3) → door at topY+4 = 485
+ * - west/east shrine: stampShrine(cx, PY0+10) → door at topY+4 = 492
+ * - south exedra: stampShrine(511, PY1-12) → door at topY+4 = 537
  */
 export const PUBLIC_BUILDINGS: readonly PublicBuilding[] = [
   {
     id: "grand-temple",
     kind: "temple",
     name: "Grand Temple",
-    // Just south of the triple steps (steps end ~ y=488)
     doorX: 511,
-    doorY: 489,
+    doorY: 485, // facade H_DOOR (not the approach road at 489)
     exitX: 511,
-    exitY: 490,
+    exitY: 486, // first step south of door
   },
   {
     id: "south-exedra",
     kind: "shrine",
     name: "South Exedra",
     doorX: 511,
-    doorY: 538, // PY1-12+5 steps front ≈ 545-12+4 = 537 steps; door south
+    doorY: 537, // stampShrine topY+4
     exitX: 511,
-    exitY: 539,
+    exitY: 538,
   },
   {
     id: "west-shrine",
     kind: "shrine",
     name: "West Shrine",
     doorX: 486,
-    doorY: 492, // PY0+10+4
+    doorY: 492,
     exitX: 486,
     exitY: 493,
   },
@@ -98,19 +103,19 @@ export function nearDoor(px: number, py: number, doorX: number, doorY: number): 
 }
 
 /**
- * E-key confirm: standing on the door tile, or directly south of it facing north (dir=1).
- * South-facing doors are the capital convention (approach from below).
+ * E-key confirm: only while standing ON the door tile (same cell auto-enter uses).
+ * Facing the door from the south without stepping on it does NOT enter — walk onto
+ * the door tile first (Pokémon walk-in), then E is a no-op/redundant confirm.
+ * `dir` is accepted for call-site compatibility but does not expand the hitbox.
  */
 export function canConfirmEnter(
   px: number,
   py: number,
-  dir: Dir,
+  _dir: Dir,
   doorX: number,
   doorY: number
 ): boolean {
-  if (onDoorTile(px, py, doorX, doorY)) return true;
-  // Directly south of door, facing north into it
-  return px === doorX && py === doorY + 1 && dir === 1;
+  return onDoorTile(px, py, doorX, doorY);
 }
 
 export interface HouseDoor {
@@ -211,7 +216,7 @@ export function resolveNearEnterTarget(
 }
 
 /**
- * E-key resolve — on door tile, or one tile south facing north into the door.
+ * E-key resolve — exact door tile only (same predicate as auto-enter warp).
  */
 export function resolveConfirmEnterTarget(
   x: number,

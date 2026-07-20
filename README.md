@@ -76,14 +76,16 @@ Capital massing (after de-pillar): columns only in **structured runs** (avenue e
 
 ### Door entry (Pokémon-correct)
 
+The walkable entrance is the facade **door tile** (`H_DOOR` in the map) — not the ground in front of the building. Like Pokémon DP: walk **onto** the doorway to go inside.
+
 | Action | Rule |
 |--------|------|
-| **Auto-enter** (walk) | Only when the step lands **exactly** on the door tile (`x === doorX && y === doorY`). Neighbors never warp. |
+| **Auto-enter** (walk) | Only when the step lands **exactly** on the door tile (`x === doorX && y === doorY`). Standing in front (or any neighbor) never warps. |
 | **Prompt** “Press E to enter” | `nearDoor` — Manhattan distance ≤ 1. Prompt only; never warps. |
-| **E key** | On the door tile, **or** one tile south of the door **facing north** (`dir === 1`). |
+| **E key** | Only while standing **on** the door tile (same cell as auto-enter). |
 | **Exit** | Step onto the interior **south-edge door-mat** (exact tile), or press **X**. |
 
-Shared helpers: `onDoorTile`, `nearDoor`, `canConfirmEnter`, `resolveEnterTarget`, `resolveNearEnterTarget`, `resolveConfirmEnterTarget` in `packages/shared/src/buildings.ts`.
+Shared helpers: `onDoorTile`, `nearDoor`, `canConfirmEnter`, `resolveEnterTarget`, `resolveNearEnterTarget`, `resolveConfirmEnterTarget` in `packages/shared/src/buildings.ts`. Public door coords match gen-map `H_DOOR` cells (e.g. Grand Temple at `(511, 485)`).
 
 ---
 

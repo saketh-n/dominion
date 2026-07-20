@@ -630,6 +630,7 @@ function stampCol3(x: number, y: number): boolean {
 }
 
 // secondary side shrines (smaller temples) on E/W plaza terraces + south exedra
+// Entrance = center H_DOOR on the step row (walk-on door tile, Pokémon-style).
 function stampShrine(cx: number, topY: number) {
   deco[idx(cx - 1, topY, W)] = Tile.T_PED_W;
   deco[idx(cx, topY, W)] = Tile.T_PED_M;
@@ -643,7 +644,8 @@ function stampShrine(cx: number, topY: number) {
   deco[idx(cx, topY + 3, W)] = Tile.T_CELLA;
   for (let x = cx - 1; x <= cx + 1; x++) {
     ground[idx(x, topY + 4, W)] = Tile.T_STEPS;
-    deco[idx(x, topY + 4, W)] = 0;
+    // Center cell is the walkable door threshold; flanks stay clear steps.
+    deco[idx(x, topY + 4, W)] = x === cx ? Tile.H_DOOR : 0;
   }
 }
 stampShrine(486, PY0 + 10);
